@@ -176,7 +176,12 @@ recursos; guardar las claves privadas que se muestren.
 | Módulo admin: revisión | opus | Hecho | 4 bloqueantes (evasión de bloqueo con Unicode, revocación de sesiones, auditoría "Enviado → Enviado", fechas extremas 500) + 15 sugerencias |
 | Módulo admin: correcciones | sonnet | Hecho 29/10 | 17 puntos; se reanudó tras límite semanal; 236 pruebas; E2E compra 32/32 y admin 65/65 en memoria y SQL Server |
 | Cambios externos 26/10 12:04-12:58 | (fuera de la orquestación) | Integrados | Datos de entrega en checkout y DNI/celular en registro; se completan en SQL en la ola P1-A |
-| Producción: P1 (backend, UI motion, infra) | sonnet ×3 en paralelo | En curso | |
+| Producción: P1 (backend, UI motion, infra) | sonnet ×3 en paralelo | Hecho 29/10 | 276 pruebas; Tomcat local en modo producción contra SQL Server: humo 20/20, compra 32/32, admin 65/65; Bicep compila; hora de Lima en app y BD; 404 real para rutas sin servlet; NEXORA_COOKIE_SEGURA para probar por http |
+| Repositorio GitHub | opus (orquestador) | Hecho | Privado: https://github.com/Alexito-Hub/nexora (main con commits 3323d27, ecc2ff5, 493a3d7, 8217cb3) |
+| CI en GitHub Actions | — | **Bloqueado por la cuenta** | Dos ejecuciones en `startup_failure` sin jobs; un workflow trivial en otra rama ni se registró; Actions permitidas ("all"). Causa probable: facturación/minutos de Actions en repos privados. Acción del usuario: revisar Settings → Billing (o GitHub Student Developer Pack) |
+| Revisión de producción | opus | En curso | Se reanudó tras límite de sesión |
+| Verificación de la imagen Docker | — | Pendiente | Docker Desktop apagado; sin CI no hay construcción de la imagen. Plan B: `az acr build` en Azure (~5 USD/mes de ACR Basic) |
+| Despliegue en Azure | — | Pendiente | Azure CLI instalada; falta `az login` del usuario |
 
 | Prueba contra SQL Server | opus (orquestador) | Hecho 26/10 | E2E 32/32 con "Conectado a MS SQL Server (BD_NEXORA)"; filas verificadas en dbo.pedido/dbo.pago (B001-000003, F001-000001, solo últimos 4 dígitos), stock P001 10→8, eliminar P002 → "tiene pedidos asociados" (FK). TCP 1433 y autenticación mixta ya habilitados por el usuario |
 
