@@ -10,6 +10,8 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  # Permite lanzarlo a mano desde la pestaña Actions o con `gh workflow run CI`
+  workflow_dispatch:
 
 # En pull requests se cancela la ejecución anterior; en main nunca (podría interrumpir un despliegue).
 concurrency:
