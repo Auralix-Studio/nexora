@@ -20,3 +20,9 @@ nbproject/private/
 .env.*
 *.publishsettings
 infra/*.parameters.local.json
+
+# Despliegue en Azure (ver docs/DESPLIEGUE.md): claves generadas y temporales de los scripts de infra/
+!.env.example
+infra/.secretos.local
+infra/.tmp-*
+infra/main.parameters.local.json

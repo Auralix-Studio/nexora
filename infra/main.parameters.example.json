@@ -1,0 +1,14 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "location": { "value": "eastus2" },
+    "prefijo": { "value": "nexora" },
+    "imagen": { "value": "mcr.microsoft.com/k8se/quickstart:latest" },
+    "sqlAdminLogin": { "value": "nexoraadmin" },
+    "minReplicas": { "value": 0 },
+    "nexoraVersion": { "value": "dev" },
+    "modoDemo": { "value": true },
+    "usarOfertaGratuita": { "value": true }
+  }
+}

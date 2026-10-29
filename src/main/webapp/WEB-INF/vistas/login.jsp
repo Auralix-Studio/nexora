@@ -3,19 +3,26 @@
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 <%@ taglib prefix="ui" tagdir="/WEB-INF/tags" %>
+<c:set var="ctxRecursos" value="${pageContext.request.contextPath}"/>
+<c:set var="verRecursos" value="${empty appVersion ? 'dev' : appVersion}"/>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Ventana de Ingreso · NEXORA</title>
+    <meta name="description" content="Inicia sesión o crea tu cuenta en NEXORA, la tienda en línea de equipamiento tecnológico.">
+    <meta name="theme-color" content="#14211B">
+    <link rel="icon" type="image/svg+xml" href="${ctxRecursos}/img/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/estilos.css">
+    <link rel="stylesheet" href="${ctxRecursos}/css/estilos.css?v=${fn:escapeXml(verRecursos)}">
+    <script src="${ctxRecursos}/js/movimiento.js?v=${fn:escapeXml(verRecursos)}"></script>
 </head>
 <body class="pagina-acceso">
-<main class="acceso-pantalla">
+<a class="saltar" href="#contenido">Saltar al contenido</a>
+<main class="acceso-pantalla" id="contenido" tabindex="-1">
     <section class="acceso-formulario">
         <div class="tarjeta tarjeta-acceso">
             <a class="acceso-marca" href="${pageContext.request.contextPath}/inicio"><span class="marca__logo"><ui:icono nombre="capas" tam="22"/></span><strong>NEXORA</strong></a>
@@ -23,7 +30,7 @@
                 <input type="hidden" name="_csrf" value="${sessionScope.csrfToken}">
                 <div class="fila-espaciada">
                     <span class="chip chip--grande"><ui:icono nombre="candado" tam="22"/></span>
-                    <a href="${pageContext.request.contextPath}/inicio" class="mono pequeno suave" style="text-decoration: underline;">
+                    <a href="${pageContext.request.contextPath}/inicio" class="mono pequeno suave enlace-subrayado">
                         ← Volver a la tienda
                     </a>
                 </div>
@@ -56,6 +63,33 @@
                 </div>
                 <button type="submit" class="boton boton--primario boton--bloque">Iniciar Sesión</button>
             </form>
+
+            <c:if test="${modoDemo}">
+                <section class="demo-cuentas" aria-labelledby="titulo-demo">
+                    <div>
+                        <h2 class="demo-cuentas__titulo" id="titulo-demo">Cuentas de demostración</h2>
+                        <p class="nota">Entorno de pruebas: los pagos son simulados y no se realizan cargos reales.</p>
+                    </div>
+                    <ul class="demo-cuentas__lista">
+                        <li class="demo-cuenta">
+                            <div class="demo-cuenta__datos">
+                                <strong>Cliente</strong>
+                                <span class="mono">cliente / cliente123</span>
+                                <span class="nota">Puede comprar con la pasarela simulada.</span>
+                            </div>
+                            <button type="button" class="boton boton--secundario boton--pequeno" data-demo-usuario="cliente" data-demo-clave="cliente123">Usar cuenta cliente</button>
+                        </li>
+                        <li class="demo-cuenta">
+                            <div class="demo-cuenta__datos">
+                                <strong>Invitado</strong>
+                                <span class="mono">invitado / invitado</span>
+                                <span class="nota">Solo lectura: puede consultar, no modificar.</span>
+                            </div>
+                            <button type="button" class="boton boton--secundario boton--pequeno" data-demo-usuario="invitado" data-demo-clave="invitado">Usar cuenta invitado</button>
+                        </li>
+                    </ul>
+                </section>
+            </c:if>
 
             <hr class="divisor">
 
@@ -112,13 +146,13 @@
                     </div>
 
                     <button type="submit" class="boton boton--secundario boton--bloque">Crear mi cuenta</button>
-                    <p class="nota nota-pago" style="margin-top:0.5rem; text-align:center;"><ui:icono nombre="escudo" tam="14"/> Tus datos están protegidos y se utilizarán para gestionar tus compras y envíos.</p>
+                    <p class="nota nota-pago nota-centrada"><ui:icono nombre="escudo" tam="14"/> Tus datos están protegidos y se utilizarán para gestionar tus compras y envíos.</p>
                 </form>
             </details>
 
         </div>
     </section>
 </main>
-<script src="${pageContext.request.contextPath}/js/validaciones.js"></script>
+<script src="${ctxRecursos}/js/validaciones.js?v=${fn:escapeXml(verRecursos)}"></script>
 </body>
 </html>

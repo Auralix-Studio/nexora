@@ -42,17 +42,17 @@
 </form>
 
 <section class="indicadores indicadores--tres" aria-label="Totales del período">
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Total de ventas</span><span class="chip"><ui:icono nombre="monedas" tam="18"/></span></div>
         <strong class="indicador__valor"><c:out value="${totalVentasTexto}"/></strong>
         <span class="nota">ingresos del período</span>
     </div>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Número de ventas</span><span class="chip chip--ok"><ui:icono nombre="comprobante" tam="18"/></span></div>
         <strong class="indicador__valor"><c:out value="${numeroVentas}"/></strong>
         <span class="nota">comprobantes emitidos</span>
     </div>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Ticket promedio</span><span class="chip chip--aviso"><ui:icono nombre="grafico" tam="18"/></span></div>
         <strong class="indicador__valor"><c:out value="${ticketPromedioTexto}"/></strong>
         <span class="nota">por venta</span>
@@ -60,28 +60,28 @@
 </section>
 
 <section class="rejilla-bloques">
-    <div class="tarjeta">
+    <div class="tarjeta" data-revelar>
         <div class="tarjeta__encabezado">
             <h2 class="tarjeta__titulo">Ventas por día</h2>
             <p class="nota">Monto vendido cada día y número de pedidos.</p>
         </div>
         <ui:barrasReporte filas="${porDia}" unidad="pedidos"/>
     </div>
-    <div class="tarjeta">
+    <div class="tarjeta" data-revelar>
         <div class="tarjeta__encabezado">
             <h2 class="tarjeta__titulo">Ventas por categoría</h2>
             <p class="nota">Monto y unidades vendidas por categoría.</p>
         </div>
         <ui:barrasReporte filas="${porCategoria}" unidad="uds."/>
     </div>
-    <div class="tarjeta">
+    <div class="tarjeta" data-revelar>
         <div class="tarjeta__encabezado">
             <h2 class="tarjeta__titulo">Ventas por método de pago</h2>
             <p class="nota">Monto y número de pedidos según cómo pagó el cliente.</p>
         </div>
         <ui:barrasReporte filas="${porMetodo}" unidad="pedidos"/>
     </div>
-    <div class="tarjeta">
+    <div class="tarjeta" data-revelar>
         <div class="tarjeta__encabezado">
             <h2 class="tarjeta__titulo">Productos más vendidos</h2>
             <p class="nota">Los 10 con mayor monto vendido y sus unidades.</p>

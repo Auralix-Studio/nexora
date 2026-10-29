@@ -18,12 +18,15 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.regex.Pattern;
 import pe.edu.sistema.model.Usuario;
 import pe.edu.sistema.util.ConexionBD;
+import pe.edu.sistema.util.ConfigApp;
 import pe.edu.sistema.util.Seguridad;
 
 /**
  * Servicio de acceso, registro de clientes, control de roles y administración de usuarios de NEXORA.
  * Consulta las tablas dbo.usuario y dbo.rol en Microsoft SQL Server / Azure SQL (BD_NEXORA).
- * Si el servidor de base de datos no está activo, utiliza el respaldo en memoria.
+ * Si el servidor de base de datos no está activo, en desarrollo utiliza el respaldo en memoria. En producción
+ * ({@link ConfigApp#esProduccion()}) nunca lo usa ni lo modifica: sin base configurada o ante un fallo de SQL
+ * lanza {@link pe.edu.sistema.util.DatosNoDisponiblesException} (una {@link IllegalStateException}).
  * Las contraseñas se guardan cifradas ({@link Seguridad}); las heredadas en claro o con menos iteraciones se recifran al ingresar.
  * Tras {@link #MAX_INTENTOS} fallos seguidos la cuenta se bloquea {@link #MINUTOS_BLOQUEO} minutos.
  */
@@ -44,6 +47,8 @@ public class UsuarioService {
     private static final int I_CORREO = 3;
     private static final int I_ROL = 4;
     private static final int I_ACTIVO = 5;
+    private static final int I_DNI = 6;
+    private static final int I_TELEFONO = 7;
 
     private static final String MSG_SIN_PERMISO = "Solo el Administrador puede gestionar usuarios.";
     private static final String MSG_NO_ENCONTRADO = "No se encontró el usuario solicitado.";
@@ -59,7 +64,8 @@ public class UsuarioService {
     private static final String HASH_FALSO = Seguridad.hashClave("clave-sin-cuenta-nexora");
 
     /**
-     * Respaldo en memoria mutable: username -> {id, clave cifrada, nombreCompleto, correo, rol, activo ("1"/"0")}.
+     * Respaldo en memoria mutable (solo desarrollo): username -> {id, clave cifrada, nombreCompleto, correo, rol,
+     * activo ("1"/"0"), dni, teléfono (los dos últimos pueden ser null)}.
      * Es estático y lo comparten todas las instancias del servicio, así que todo acceso
      * (lectura, escritura o iteración) debe hacerse dentro de {@code synchronized (USUARIOS_MEMORIA)}.
      * Los arreglos guardados no se modifican nunca: un cambio coloca una copia nueva.
@@ -69,7 +75,8 @@ public class UsuarioService {
     static {
         USUARIOS_MEMORIA.put("admin",    semilla("1", "admin123",   "Alessandro",     "admin@nexora.pe",    Usuario.ROL_ADMIN));
         USUARIOS_MEMORIA.put("almacen",  semilla("2", "almacen123", "Carlos Vega",    "almacen@nexora.pe",  Usuario.ROL_ALMACEN));
-        USUARIOS_MEMORIA.put("cliente",  semilla("3", "cliente123", "Andrea Paredes", "cliente@nexora.pe",  Usuario.ROL_CLIENTE));
+        USUARIOS_MEMORIA.put("cliente",  semilla("3", "cliente123", "Andrea Paredes", "cliente@nexora.pe",  Usuario.ROL_CLIENTE,
+                "70451236", "987654321"));
         USUARIOS_MEMORIA.put("invitado", semilla("4", "invitado",   "Lucía Torres",   "consulta@nexora.pe", Usuario.ROL_CONSULTA));
     }
 
@@ -94,13 +101,15 @@ public class UsuarioService {
     private static final ResultadoAcceso FALLO = new ResultadoAcceso(null, false);
 
     private static final String SQL_AUTENTICAR =
-            "SELECT u.id_usuario, u.username, u.nombre_completo, u.correo, r.nombre AS rol, u.activo, u.clave "
+            "SELECT u.id_usuario, u.username, u.nombre_completo, u.correo, r.nombre AS rol, u.activo, u.clave, "
+            + "u.dni, u.telefono "
             + "FROM dbo.usuario u "
             + "INNER JOIN dbo.rol r ON u.id_rol = r.id_rol "
             + "WHERE u.username = ? COLLATE Latin1_General_100_BIN2 AND u.activo = 1";
 
     private static final String SQL_USUARIOS =
-            "SELECT u.id_usuario, u.username, u.nombre_completo, u.correo, r.nombre AS rol, u.activo "
+            "SELECT u.id_usuario, u.username, u.nombre_completo, u.correo, r.nombre AS rol, u.activo, "
+            + "u.dni, u.telefono "
             + "FROM dbo.usuario u "
             + "INNER JOIN dbo.rol r ON u.id_rol = r.id_rol ";
 
@@ -109,8 +118,8 @@ public class UsuarioService {
     private static final String SQL_BUSCAR_ID = SQL_USUARIOS + "WHERE u.id_usuario = ?";
 
     private static final String SQL_REGISTRAR_CLIENTE =
-            "INSERT INTO dbo.usuario (username, clave, nombre_completo, correo, id_rol, activo) "
-            + "VALUES (?, ?, ?, ?, (SELECT id_rol FROM dbo.rol WHERE LOWER(nombre) = LOWER('Cliente')), 1)";
+            "INSERT INTO dbo.usuario (username, clave, nombre_completo, correo, dni, telefono, id_rol, activo) "
+            + "VALUES (?, ?, ?, ?, ?, ?, (SELECT id_rol FROM dbo.rol WHERE LOWER(nombre) = LOWER('Cliente')), 1)";
 
     private static final String SQL_CREAR_USUARIO =
             "INSERT INTO dbo.usuario (username, clave, nombre_completo, correo, id_rol, activo) "
@@ -173,8 +182,9 @@ public class UsuarioService {
         }
         Usuario encontrado = null;
 
-        // 1. Intentar autenticación contra MS SQL Server / Azure SQL Database (BD_NEXORA)
-        if (ConexionBD.estaDisponible()) {
+        // 1. Intentar autenticación contra MS SQL Server / Azure SQL Database (BD_NEXORA).
+        //    En producción usarSql() lanza si no hay base configurada y un fallo de SQL no cae a la memoria.
+        if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_AUTENTICAR)) {
                 ps.setString(1, userNorm);
@@ -196,11 +206,11 @@ public class UsuarioService {
                     registrarBitacoraSesion(cn, candidato.getIdUsuario(), ipCliente);
                 }
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallarSinRespaldo(ex);
             }
         }
 
-        // 2. Respaldo en memoria si SQL Server no está activo
+        // 2. Respaldo en memoria si SQL Server no está activo (solo desarrollo)
         if (encontrado == null && !ConexionBD.estaDisponible()) {
             String[] datos;
             synchronized (USUARIOS_MEMORIA) {
@@ -272,9 +282,23 @@ public class UsuarioService {
     }
 
     public String registrarCliente(String username, String clave, String nombreCompleto, String correo) {
+        return registrarCliente(username, clave, nombreCompleto, correo, null, null);
+    }
+
+    /**
+     * Registra una cuenta de Cliente con DNI y celular (opcionales: null o vacío = no se guardan).
+     * El DNI debe tener 8 dígitos y el celular 9 dígitos empezando con 9. En producción solo opera sobre SQL
+     * (sin respaldo en memoria): duplicados y alta se resuelven en dbo.usuario.
+     *
+     * @return mensaje de error si los datos son inválidos o el usuario ya existe; cadena vacía si fue exitoso
+     */
+    public String registrarCliente(String username, String clave, String nombreCompleto, String correo,
+            String dni, String telefono) {
         String u = normalizar(username);
         String n = nombreCompleto == null ? "" : nombreCompleto.trim();
         String m = correo == null || correo.isBlank() ? (u + "@cliente.nexora.pe") : normalizar(correo);
+        String documento = dni == null || dni.isBlank() ? null : dni.trim();
+        String celular = telefono == null || telefono.isBlank() ? null : telefono.trim();
 
         if (!PATRON_USUARIO.matcher(u).matches()) {
             return "El usuario debe tener entre 3 y 40 caracteres: letras minúsculas, números, punto, guion o guion bajo.";
@@ -294,9 +318,32 @@ public class UsuarioService {
         if (m.length() > 100 || !PATRON_CORREO.matcher(m).matches()) {
             return "Ingresa un correo válido.";
         }
+        if (documento != null && !documento.matches("\\d{8}")) {
+            return "El DNI debe contener exactamente 8 dígitos numéricos.";
+        }
+        if (celular != null && !celular.matches("9\\d{8}")) {
+            return "El celular debe contener 9 dígitos y empezar con 9.";
+        }
 
         // El cifrado es lento a propósito: se hace antes de tomar el candado
         String hash = Seguridad.hashClave(c);
+
+        if (ConfigApp.esProduccion()) {
+            // Sin respaldo en memoria: usarSql() lanza si no hay base configurada
+            ConexionBD.usarSql();
+            try {
+                String duplicado = duplicado(true, u, m);
+                if (duplicado != null) {
+                    return duplicado;
+                }
+                insertarClienteSql(u, hash, n, m, documento, celular);
+            } catch (SQLException ex) {
+                ConexionBD.alFallar(ex);
+                return "No se pudo registrar el cliente en BD_NEXORA (verifique que el usuario o correo no esté duplicado).";
+            }
+            INTENTOS.remove(llaveIntentos(u));
+            return "";
+        }
 
         // Comprobar, insertar y registrar en memoria es una sola operación frente a otros registros
         synchronized (USUARIOS_MEMORIA) {
@@ -308,22 +355,32 @@ public class UsuarioService {
             }
 
             if (ConexionBD.estaDisponible()) {
-                try (Connection cn = ConexionBD.obtenerConexion();
-                     PreparedStatement ps = cn.prepareStatement(SQL_REGISTRAR_CLIENTE)) {
-                    ps.setString(1, u);
-                    ps.setString(2, hash);
-                    ps.setString(3, n);
-                    ps.setString(4, m);
-                    ps.executeUpdate();
+                try {
+                    insertarClienteSql(u, hash, n, m, documento, celular);
                 } catch (SQLException ex) {
                     return "No se pudo registrar el cliente en BD_NEXORA (verifique que el usuario o correo no esté duplicado).";
                 }
             }
 
-            USUARIOS_MEMORIA.put(u, new String[]{siguienteIdMemoria(), hash, n, m, Usuario.ROL_CLIENTE, "1"});
+            USUARIOS_MEMORIA.put(u, new String[]{siguienteIdMemoria(), hash, n, m, Usuario.ROL_CLIENTE, "1",
+                documento, celular});
             // Una cuenta nueva empieza sin fallos aunque alguien haya probado antes ese nombre
             INTENTOS.remove(llaveIntentos(u));
             return "";
+        }
+    }
+
+    private static void insertarClienteSql(String username, String hash, String nombre, String correo, String dni,
+            String telefono) throws SQLException {
+        try (Connection cn = ConexionBD.obtenerConexion();
+             PreparedStatement ps = cn.prepareStatement(SQL_REGISTRAR_CLIENTE)) {
+            ps.setString(1, username);
+            ps.setString(2, hash);
+            ps.setString(3, nombre);
+            ps.setString(4, correo);
+            ps.setString(5, dni);
+            ps.setString(6, telefono);
+            ps.executeUpdate();
         }
     }
 
@@ -382,7 +439,7 @@ public class UsuarioService {
 
     /** Todos los usuarios (activos e inactivos), ordenados por rol y usuario. */
     public List<Usuario> listarUsuarios() {
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_LISTAR);
                  ResultSet rs = ps.executeQuery()) {
@@ -392,7 +449,7 @@ public class UsuarioService {
                 }
                 return lista;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallarSinRespaldo(ex);
             }
         }
         if (ConexionBD.estaDisponible()) {
@@ -411,11 +468,11 @@ public class UsuarioService {
 
     /** Busca una cuenta por su identificador (activa o no); null si no existe. */
     public Usuario buscarPorId(int idUsuario) {
-        boolean sql = ConexionBD.estaDisponible();
+        boolean sql = ConexionBD.usarSql();
         try {
             return obtener(sql, idUsuario);
         } catch (SQLException ex) {
-            ConexionBD.probarConexion();
+            ConexionBD.alFallar(ex);
             return null;
         }
     }
@@ -458,7 +515,7 @@ public class UsuarioService {
 
         String hash = Seguridad.hashClave(clave);
         synchronized (USUARIOS_MEMORIA) {
-            boolean sql = ConexionBD.estaDisponible();
+            boolean sql = ConexionBD.usarSql();
             try {
                 error = duplicado(sql, u, m);
                 if (error != null) {
@@ -475,12 +532,12 @@ public class UsuarioService {
                         ps.executeUpdate();
                     }
                 } else {
-                    USUARIOS_MEMORIA.put(u, new String[]{siguienteIdMemoria(), hash, n, m, rolCanonico, "1"});
+                    USUARIOS_MEMORIA.put(u, new String[]{siguienteIdMemoria(), hash, n, m, rolCanonico, "1", null, null});
                 }
                 INTENTOS.remove(llaveIntentos(u));
                 return null;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallar(ex);
                 return MSG_ERROR_BD;
             }
         }
@@ -499,7 +556,7 @@ public class UsuarioService {
             return "No puedes cambiar el estado de tu propia cuenta.";
         }
         synchronized (USUARIOS_MEMORIA) {
-            boolean sql = ConexionBD.estaDisponible();
+            boolean sql = ConexionBD.usarSql();
             try {
                 Usuario objetivo = obtener(sql, idUsuario);
                 if (objetivo == null) {
@@ -517,7 +574,7 @@ public class UsuarioService {
                 }
                 return null;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallar(ex);
                 return MSG_ERROR_BD;
             }
         }
@@ -537,7 +594,7 @@ public class UsuarioService {
             return "No puedes cambiar tu propio rol.";
         }
         synchronized (USUARIOS_MEMORIA) {
-            boolean sql = ConexionBD.estaDisponible();
+            boolean sql = ConexionBD.usarSql();
             try {
                 Usuario objetivo = obtener(sql, idUsuario);
                 if (objetivo == null) {
@@ -554,7 +611,7 @@ public class UsuarioService {
                 revocarSesiones(objetivo.getUsername());
                 return null;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallar(ex);
                 return MSG_ERROR_BD;
             }
         }
@@ -572,7 +629,7 @@ public class UsuarioService {
         }
         String hash = Seguridad.hashClave(nuevaClave);
         synchronized (USUARIOS_MEMORIA) {
-            boolean sql = ConexionBD.estaDisponible();
+            boolean sql = ConexionBD.usarSql();
             try {
                 Usuario objetivo = obtener(sql, idUsuario);
                 if (objetivo == null) {
@@ -583,7 +640,7 @@ public class UsuarioService {
                 revocarSesiones(objetivo.getUsername());
                 return null;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallar(ex);
                 return MSG_ERROR_BD;
             }
         }
@@ -784,7 +841,12 @@ public class UsuarioService {
     // ---------------------------------------------------------------- auxiliares
 
     private static String[] semilla(String id, String claveClaro, String nombre, String correo, String rol) {
-        return new String[]{id, Seguridad.hashClave(claveClaro), nombre, correo, rol, "1"};
+        return semilla(id, claveClaro, nombre, correo, rol, null, null);
+    }
+
+    private static String[] semilla(String id, String claveClaro, String nombre, String correo, String rol,
+            String dni, String telefono) {
+        return new String[]{id, Seguridad.hashClave(claveClaro), nombre, correo, rol, "1", dni, telefono};
     }
 
     /**
@@ -821,11 +883,14 @@ public class UsuarioService {
                 rs.getString("nombre_completo"),
                 rs.getString("correo"),
                 rs.getString("rol"),
-                rs.getBoolean("activo"));
+                rs.getBoolean("activo"),
+                rs.getString("dni"),
+                rs.getString("telefono"));
     }
 
     private static Usuario aUsuario(String username, String[] d) {
-        return new Usuario(Integer.parseInt(d[I_ID]), username, d[I_NOMBRE], d[I_CORREO], d[I_ROL], "1".equals(d[I_ACTIVO]));
+        return new Usuario(Integer.parseInt(d[I_ID]), username, d[I_NOMBRE], d[I_CORREO], d[I_ROL],
+                "1".equals(d[I_ACTIVO]), d.length > I_DNI ? d[I_DNI] : null, d.length > I_TELEFONO ? d[I_TELEFONO] : null);
     }
 
     /** Siguiente identificador libre del respaldo en memoria. Llamar con el candado tomado. */

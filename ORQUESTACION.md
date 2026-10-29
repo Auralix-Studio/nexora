@@ -63,7 +63,7 @@ Solo el rol Cliente compra (`Usuario.isPuedeComprar`). Personal: inventario y re
   (`cantidadProductos`, `eliminable`), `FilaReporte` (etiqueta, cantidad, monto, porcentaje, anchoBarra + *Texto),
   `ResumenVentas` (ingresos hoy/mes/total, pedidos hoy/mes/total, unidades, `pedidosPorEstado`, `topProductos`,
   `stockBajo`, `ultimosPedidos`, `ticketPromedio`, `pedidosPendientes` + *Texto).
-- `util/Seguridad`: `hashClave`, `verificarClave`, `esHash` (PBKDF2-SHA256, 120 000 iteraciones).
+- `util/Seguridad`: `hashClave`, `verificarClave`, `esHash` (PBKDF2-SHA256, 600 000 iteraciones; recifra al ingresar si el hash es más débil).
 
 ### Servicios (firmas en el código; los que modifican devuelven null si va bien o el mensaje de error)
 - `ProductoService`: `filtrarPedidos`, `cambiarEstadoPedido`, `anularPedido`, `ajustarStock`, `listarMovimientos`,
@@ -170,6 +170,13 @@ recursos; guardar las claves privadas que se muestren.
 | Ola 3: E2E + revisión | opus | Hecho | Revisión: 2 bloqueantes (traversal `..;` en SesionFilter, NPE en registro) + 16 sugerencias |
 | Ola 4: correcciones de revisión | sonnet | Hecho | 17 de 18 hallazgos aplicados (omitido: candado del singleton durante la transacción SQL) |
 | Verificación final | opus (orquestador) | Hecho | 145 pruebas JUnit en verde; E2E 32/32 en Tomcat 11 (puerto 8090, modo memoria) |
+| Módulo admin: ola 0 (contratos, SQL, cifrado) | opus (orquestador) | Hecho 26/10 | SQL validado en BD temporal |
+| Módulo admin: ola 1 (servicios, controladores, vistas) | sonnet ×3 en paralelo | Hecho | Causa de 14 fallos E2E: curl de Git Bash enviaba acentos en cp1252 (no era bug); se añadió 400 ante parámetros mal codificados |
+| Módulo admin: pruebas y docs | sonnet | Hecho | 221 pruebas |
+| Módulo admin: revisión | opus | Hecho | 4 bloqueantes (evasión de bloqueo con Unicode, revocación de sesiones, auditoría "Enviado → Enviado", fechas extremas 500) + 15 sugerencias |
+| Módulo admin: correcciones | sonnet | Hecho 29/10 | 17 puntos; se reanudó tras límite semanal; 236 pruebas; E2E compra 32/32 y admin 65/65 en memoria y SQL Server |
+| Cambios externos 26/10 12:04-12:58 | (fuera de la orquestación) | Integrados | Datos de entrega en checkout y DNI/celular en registro; se completan en SQL en la ola P1-A |
+| Producción: P1 (backend, UI motion, infra) | sonnet ×3 en paralelo | En curso | |
 
 | Prueba contra SQL Server | opus (orquestador) | Hecho 26/10 | E2E 32/32 con "Conectado a MS SQL Server (BD_NEXORA)"; filas verificadas en dbo.pedido/dbo.pago (B001-000003, F001-000001, solo últimos 4 dígitos), stock P001 10→8, eliminar P002 → "tiene pedidos asociados" (FK). TCP 1433 y autenticación mixta ya habilitados por el usuario |
 

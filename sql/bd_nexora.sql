@@ -31,6 +31,7 @@ IF OBJECT_ID(N'dbo.vw_usuarios_roles', N'V') IS NOT NULL DROP VIEW dbo.vw_usuari
 IF OBJECT_ID(N'dbo.auditoria', N'U') IS NOT NULL DROP TABLE dbo.auditoria;
 IF OBJECT_ID(N'dbo.movimiento_stock', N'U') IS NOT NULL DROP TABLE dbo.movimiento_stock;
 IF OBJECT_ID(N'dbo.pago', N'U') IS NOT NULL DROP TABLE dbo.pago;
+IF OBJECT_ID(N'dbo.entrega', N'U') IS NOT NULL DROP TABLE dbo.entrega;
 IF OBJECT_ID(N'dbo.pedido', N'U') IS NOT NULL DROP TABLE dbo.pedido;
 IF OBJECT_ID(N'dbo.producto', N'U') IS NOT NULL DROP TABLE dbo.producto;
 IF OBJECT_ID(N'dbo.categoria', N'U') IS NOT NULL DROP TABLE dbo.categoria;
@@ -42,6 +43,10 @@ GO
 -- ============================================================================
 -- 3. MODELO FÍSICO DE TABLAS (DDL - 3ra Forma Normal)
 -- ============================================================================
+
+-- Fechas: todas en hora de Perú (UTC-5, sin horario de verano). Azure SQL trabaja en UTC, por eso los
+-- valores por defecto convierten SYSDATETIMEOFFSET() a N'SA Pacific Standard Time' (Lima, Bogotá, Quito)
+-- en lugar de usar SYSDATETIME(), que depende de la zona del servidor.
 
 -- 3.1 Tabla ROL: Perfiles y niveles de permiso en el sistema NEXORA
 CREATE TABLE dbo.rol (
@@ -55,20 +60,25 @@ CREATE TABLE dbo.rol (
 );
 GO
 
--- 3.2 Tabla USUARIO: Credenciales de la Ventana de Ingreso vinculadas a un Rol
+-- 3.2 Tabla USUARIO: Credenciales de la Ventana de Ingreso vinculadas a un Rol.
+-- dni (8 dígitos) y telefono (celular de 9 dígitos que empieza con 9) son del cliente; pueden quedar vacíos.
 CREATE TABLE dbo.usuario (
     id_usuario      INT IDENTITY(1,1) NOT NULL,
     username        NVARCHAR(40)      NOT NULL,
     clave           NVARCHAR(120)     NOT NULL,
     nombre_completo NVARCHAR(100)     NOT NULL,
     correo          NVARCHAR(100)     NOT NULL,
+    dni             CHAR(8)           NULL,
+    telefono        VARCHAR(9)        NULL,
     id_rol          INT               NOT NULL,
     activo          BIT               NOT NULL CONSTRAINT DF_usuario_activo DEFAULT (1),
-    fecha_registro  DATETIME2(0)      NOT NULL CONSTRAINT DF_usuario_fecha DEFAULT (SYSDATETIME()),
+    fecha_registro  DATETIME2(0)      NOT NULL CONSTRAINT DF_usuario_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     CONSTRAINT PK_usuario PRIMARY KEY CLUSTERED (id_usuario),
     CONSTRAINT UQ_usuario_username UNIQUE (username),
     CONSTRAINT UQ_usuario_correo UNIQUE (correo),
-    CONSTRAINT FK_usuario_rol FOREIGN KEY (id_rol) REFERENCES dbo.rol (id_rol)
+    CONSTRAINT FK_usuario_rol FOREIGN KEY (id_rol) REFERENCES dbo.rol (id_rol),
+    CONSTRAINT CK_usuario_dni CHECK (dni IS NULL OR dni LIKE '[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]'),
+    CONSTRAINT CK_usuario_telefono CHECK (telefono IS NULL OR telefono LIKE '9[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]')
 );
 GO
 
@@ -76,7 +86,7 @@ GO
 CREATE TABLE dbo.sesion_acceso (
     id_sesion     INT IDENTITY(1,1) NOT NULL,
     id_usuario    INT               NOT NULL,
-    fecha_ingreso DATETIME2(0)      NOT NULL CONSTRAINT DF_sesion_fecha DEFAULT (SYSDATETIME()),
+    fecha_ingreso DATETIME2(0)      NOT NULL CONSTRAINT DF_sesion_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     ip_cliente    VARCHAR(45)       NOT NULL CONSTRAINT DF_sesion_ip DEFAULT ('127.0.0.1'),
     exito         BIT               NOT NULL CONSTRAINT DF_sesion_exito DEFAULT (1),
     CONSTRAINT PK_sesion_acceso PRIMARY KEY CLUSTERED (id_sesion),
@@ -103,7 +113,7 @@ CREATE TABLE dbo.producto (
     precio         DECIMAL(10,2)  NOT NULL,
     stock          INT            NOT NULL,
     estado         NVARCHAR(20)   NOT NULL,
-    fecha_registro DATETIME2(0)   NOT NULL CONSTRAINT DF_producto_fecha DEFAULT (SYSDATETIME()),
+    fecha_registro DATETIME2(0)   NOT NULL CONSTRAINT DF_producto_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     CONSTRAINT PK_producto PRIMARY KEY CLUSTERED (codigo),
     CONSTRAINT FK_producto_categoria FOREIGN KEY (id_categoria) REFERENCES dbo.categoria (id_categoria),
     CONSTRAINT CK_producto_precio CHECK (precio > 0),
@@ -119,7 +129,7 @@ CREATE TABLE dbo.pedido (
     codigo_producto VARCHAR(10)       NOT NULL,
     cantidad        INT               NOT NULL,
     precio_unitario DECIMAL(10,2)     NOT NULL,
-    fecha_pedido    DATETIME2(0)      NOT NULL CONSTRAINT DF_pedido_fecha DEFAULT (SYSDATETIME()),
+    fecha_pedido    DATETIME2(0)      NOT NULL CONSTRAINT DF_pedido_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     estado          NVARCHAR(20)      NOT NULL CONSTRAINT DF_pedido_estado DEFAULT (N'Confirmado'),
     fecha_actualizacion DATETIME2(0)  NULL,
     CONSTRAINT PK_pedido PRIMARY KEY CLUSTERED (id_pedido),
@@ -149,7 +159,7 @@ CREATE TABLE dbo.pago (
     numero_comprobante  VARCHAR(15)       NOT NULL,
     documento_cliente   VARCHAR(11)       NOT NULL,
     razon_social        NVARCHAR(150)     NULL,
-    fecha_pago          DATETIME2(0)      NOT NULL CONSTRAINT DF_pago_fecha DEFAULT (SYSDATETIME()),
+    fecha_pago          DATETIME2(0)      NOT NULL CONSTRAINT DF_pago_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     CONSTRAINT PK_pago PRIMARY KEY CLUSTERED (id_pago),
     CONSTRAINT UQ_pago_pedido UNIQUE (id_pedido),
     CONSTRAINT UQ_pago_comprobante UNIQUE (numero_comprobante),
@@ -171,7 +181,7 @@ CREATE TABLE dbo.movimiento_stock (
     stock_resultante INT               NOT NULL,
     motivo           NVARCHAR(200)     NOT NULL,
     id_usuario       INT               NULL,
-    fecha            DATETIME2(0)      NOT NULL CONSTRAINT DF_movimiento_fecha DEFAULT (SYSDATETIME()),
+    fecha            DATETIME2(0)      NOT NULL CONSTRAINT DF_movimiento_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     CONSTRAINT PK_movimiento_stock PRIMARY KEY CLUSTERED (id_movimiento),
     CONSTRAINT FK_movimiento_producto FOREIGN KEY (codigo_producto) REFERENCES dbo.producto (codigo),
     CONSTRAINT FK_movimiento_usuario FOREIGN KEY (id_usuario) REFERENCES dbo.usuario (id_usuario),
@@ -190,8 +200,27 @@ CREATE TABLE dbo.auditoria (
     entidad      NVARCHAR(80)      NULL,
     detalle      NVARCHAR(400)     NULL,
     ip           VARCHAR(45)       NULL,
-    fecha        DATETIME2(0)      NOT NULL CONSTRAINT DF_auditoria_fecha DEFAULT (SYSDATETIME()),
+    fecha        DATETIME2(0)      NOT NULL CONSTRAINT DF_auditoria_fecha DEFAULT (CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0))),
     CONSTRAINT PK_auditoria PRIMARY KEY CLUSTERED (id_auditoria)
+);
+GO
+
+-- 3.10 Tabla ENTREGA: datos de entrega del pedido (1:1 con dbo.pedido). Se inserta en la misma transacción
+-- de la compra. tipo_envio: DOMICILIO o RETIRO (en tienda; la dirección es entonces la del almacén).
+-- Longitudes coherentes con las validaciones del checkout (PagoServlet).
+CREATE TABLE dbo.entrega (
+    id_pedido          INT           NOT NULL,
+    tipo_envio         VARCHAR(10)   NOT NULL,
+    departamento       NVARCHAR(50)  NOT NULL,
+    distrito           NVARCHAR(80)  NOT NULL,
+    direccion          NVARCHAR(200) NOT NULL,
+    referencia         NVARCHAR(200) NULL,
+    telefono           VARCHAR(20)   NULL,
+    correo_comprobante NVARCHAR(100) NULL,
+    notas              NVARCHAR(300) NULL,
+    CONSTRAINT PK_entrega PRIMARY KEY CLUSTERED (id_pedido),
+    CONSTRAINT FK_entrega_pedido FOREIGN KEY (id_pedido) REFERENCES dbo.pedido (id_pedido),
+    CONSTRAINT CK_entrega_tipo CHECK (tipo_envio IN ('DOMICILIO', 'RETIRO'))
 );
 GO
 
@@ -224,6 +253,10 @@ INSERT INTO dbo.usuario (username, clave, nombre_completo, correo, id_rol, activ
 (N'almacen',  N'pbkdf2_sha256$120000$0TpA4pqWwahOTyiUjAzQKg==$+6rnPaMOoGmZJXeKPLfs1hhn9WQb9rb43+gcofNykEE=', N'Carlos Vega',    N'almacen@nexora.pe',  2, 1),
 (N'cliente',  N'pbkdf2_sha256$120000$2TvUVhdYzAsU9uZBmwj8tQ==$KEz2VRwEszhs3ruFw8YSGINXw3z44Vy6vvPnoZOH0iw=', N'Andrea Paredes', N'cliente@nexora.pe',  3, 1),
 (N'invitado', N'pbkdf2_sha256$120000$rZkmGwRDouCfW40cDSyI5Q==$ak+IlCK5Zm/Ldx3y6EbFGWQlgFaBGbCkW7HGF4xbqhg=', N'Lucía Torres',   N'consulta@nexora.pe', 4, 1);
+GO
+
+-- DNI y celular del cliente de muestra (los mismos del respaldo en memoria y de los pagos iniciales)
+UPDATE dbo.usuario SET dni = '70451236', telefono = '987654321' WHERE username = N'cliente';
 GO
 
 -- 4.3 Registro inicial en bitácora de inicios de sesión
@@ -265,7 +298,16 @@ INSERT INTO dbo.pedido (id_usuario, codigo_producto, cantidad, precio_unitario, 
 (3, 'P006', 1, 165.00, '2026-10-18T19:15:00', N'Enviado',   '2026-10-19T09:30:00');
 GO
 
--- 4.7 Pagos aprobados de los pedidos iniciales (Visa 1111, boleta a DNI 70451236)
+-- 4.7 Entregas de los pedidos iniciales (a domicilio, como en el respaldo en memoria)
+INSERT INTO dbo.entrega (id_pedido, tipo_envio, departamento, distrito, direccion, referencia, telefono,
+                         correo_comprobante, notas) VALUES
+(1, 'DOMICILIO', N'Lima', N'Miraflores', N'Av. Larco 345, Miraflores', N'Frente al parque Kennedy', '987654321',
+    N'cliente@nexora.pe', NULL),
+(2, 'DOMICILIO', N'Lima', N'Miraflores', N'Av. Larco 345, Miraflores', N'Frente al parque Kennedy', '987654321',
+    N'cliente@nexora.pe', NULL);
+GO
+
+-- 4.8 Pagos aprobados de los pedidos iniciales (Visa 1111, boleta a DNI 70451236)
 -- Pago simulado: nunca se almacena el número completo ni el CVV
 INSERT INTO dbo.pago (id_pedido, metodo, marca, ultimos_digitos, titular, monto, estado,
                       codigo_autorizacion, codigo_operacion, tipo_comprobante, numero_comprobante,
@@ -276,7 +318,7 @@ INSERT INTO dbo.pago (id_pedido, metodo, marca, ultimos_digitos, titular, monto,
     '730264', 'OP-20261018191547-7305', N'Boleta', 'B001-000002', '70451236', NULL, '2026-10-18T19:15:00');
 GO
 
--- 4.8 Kardex: salidas por venta de los pedidos iniciales (el stock de 4.5 ya las descuenta)
+-- 4.9 Kardex: salidas por venta de los pedidos iniciales (el stock de 4.5 ya las descuenta)
 INSERT INTO dbo.movimiento_stock (codigo_producto, tipo, cantidad, stock_resultante, motivo, id_usuario, fecha) VALUES
 ('P002', N'Salida', -2, 25, N'Venta PED-0001', 3, '2026-10-18T18:30:00'),
 ('P006', N'Salida', -1, 30, N'Venta PED-0002', 3, '2026-10-18T19:15:00');
@@ -402,6 +444,7 @@ SELECT * FROM dbo.sesion_acceso;
 SELECT * FROM dbo.categoria;
 SELECT * FROM dbo.vw_productos_detalle ORDER BY codigo;
 SELECT * FROM dbo.pedido;
+SELECT * FROM dbo.entrega;
 SELECT * FROM dbo.pago;
 SELECT * FROM dbo.movimiento_stock;
 SELECT * FROM dbo.auditoria;

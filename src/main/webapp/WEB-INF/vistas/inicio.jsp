@@ -13,17 +13,17 @@
 <c:set var="ctx" value="${pageContext.request.contextPath}"/>
 
 <%-- Banner Hero Principal de la Tienda --%>
-<section class="tienda-hero">
+<section class="tienda-hero" data-parallax>
     <div class="tienda-hero__contenido">
         <div class="tienda-hero__badge">
             <ui:icono nombre="monedas" tam="14"/> NEXORA · TECNOLOGÍA A TU ALCANCE
         </div>
-        <h2 class="tienda-hero__titulo">Tecnología para tu próximo proyecto.</h2>
+        <h2 class="tienda-hero__titulo" data-dividir>Tecnología para tu próximo proyecto.</h2>
         <p class="tienda-hero__subtitulo">
             Laptops, monitores y accesorios. Encuentra el equipo que necesitas en un solo lugar.
         </p>
         <div class="tienda-hero__acciones">
-            <a href="#catalogo" class="boton boton--primario">
+            <a href="#catalogo" class="boton boton--primario boton--brillo">
                 <ui:icono nombre="caja" tam="18"/> Explorar catálogo
             </a>
             <a href="${ctx}/productos?accion=buscar" class="boton boton--contorno-claro">
@@ -35,10 +35,10 @@
 </section>
 
 <section class="barra-confianza" aria-label="Cómo funciona la tienda">
-    <div class="confianza-item"><span class="confianza-item__icono"><ui:icono nombre="filtro"/></span><div class="confianza-item__titulo">Explora por categoría</div></div>
-    <div class="confianza-item"><span class="confianza-item__icono"><ui:icono nombre="caja"/></span><div class="confianza-item__titulo">Stock en tiempo real</div></div>
-    <div class="confianza-item"><span class="confianza-item__icono"><ui:icono nombre="tarjeta"/></span><div class="confianza-item__titulo">Paga con tarjeta o Yape</div></div>
-    <div class="confianza-item"><span class="confianza-item__icono"><ui:icono nombre="comprobante"/></span><div class="confianza-item__titulo">Boleta o factura electrónica</div></div>
+    <div class="confianza-item" data-revelar><span class="confianza-item__icono"><ui:icono nombre="filtro"/></span><div class="confianza-item__titulo">Explora por categoría</div></div>
+    <div class="confianza-item" data-revelar><span class="confianza-item__icono"><ui:icono nombre="caja"/></span><div class="confianza-item__titulo">Stock en tiempo real</div></div>
+    <div class="confianza-item" data-revelar><span class="confianza-item__icono"><ui:icono nombre="tarjeta"/></span><div class="confianza-item__titulo">Paga con tarjeta o Yape</div></div>
+    <div class="confianza-item" data-revelar><span class="confianza-item__icono"><ui:icono nombre="comprobante"/></span><div class="confianza-item__titulo">Boleta o factura electrónica</div></div>
 </section>
 
 <%-- Encabezado de la Sección de Productos --%>
@@ -48,7 +48,7 @@
         <p>Explora por categoría · Precios en soles</p>
     </div>
     <div class="nota mono">
-        Mostrando <strong style="color: var(--tinta);">${fn:length(productosTienda)}</strong> productos
+        Mostrando <strong class="texto-tinta">${fn:length(productosTienda)}</strong> productos
     </div>
 </div>
 

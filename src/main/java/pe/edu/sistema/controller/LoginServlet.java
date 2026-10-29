@@ -11,6 +11,7 @@ import pe.edu.sistema.model.RegistroAuditoria;
 import pe.edu.sistema.model.Usuario;
 import pe.edu.sistema.service.UsuarioService;
 import pe.edu.sistema.util.ConexionBD;
+import pe.edu.sistema.util.ConfigApp;
 
 /**
  * Controlador de inicio y cierre de sesión del sistema NEXORA (Ventana de Ingreso · Semana 06).
@@ -36,7 +37,8 @@ public class LoginServlet extends HttpServlet {
             resp.sendRedirect(req.getContextPath() + "/inicio");
             return;
         }
-        if ("1".equals(req.getParameter("probarBD"))) {
+        // En producción no se permite forzar sondeos desde la página pública (la base puede estar pausada)
+        if (!ConfigApp.esProduccion() && "1".equals(req.getParameter("probarBD"))) {
             ConexionBD.probarConexion();
         }
         req.setAttribute("bdConectada", ConexionBD.estaDisponible());
@@ -138,7 +140,7 @@ public class LoginServlet extends HttpServlet {
         } else if (!nuevaClave.equals(confirmarClave)) {
             error = "Las contraseñas ingresadas no coinciden. Por favor, verifíquelas.";
         } else {
-            error = usuarios.registrarCliente(nuevoUsuario, nuevaClave, nombreCompleto, correo);
+            error = usuarios.registrarCliente(nuevoUsuario, nuevaClave, nombreCompleto, correo, dni, telefono);
         }
 
         if (error != null && !error.isEmpty()) {

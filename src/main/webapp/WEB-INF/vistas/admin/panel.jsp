@@ -33,41 +33,41 @@
 </section>
 
 <section class="indicadores indicadores--tres" aria-label="Indicadores de ventas">
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Ingresos de hoy</span><span class="chip"><ui:icono nombre="monedas" tam="18"/></span></div>
-        <strong class="indicador__valor"><c:out value="${resumen.ingresosHoyTexto}"/></strong>
+        <strong class="indicador__valor" data-valor="${resumen.ingresosHoy}" data-formato="soles"><c:out value="${resumen.ingresosHoyTexto}"/></strong>
         <span class="nota"><c:out value="${resumen.pedidosHoy}"/>&#32;${resumen.pedidosHoy eq 1 ? 'venta' : 'ventas'} hoy</span>
     </div>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Ingresos del mes</span><span class="chip chip--ok"><ui:icono nombre="calendario" tam="18"/></span></div>
-        <strong class="indicador__valor"><c:out value="${resumen.ingresosMesTexto}"/></strong>
+        <strong class="indicador__valor" data-valor="${resumen.ingresosMes}" data-formato="soles"><c:out value="${resumen.ingresosMesTexto}"/></strong>
         <span class="nota"><c:out value="${resumen.pedidosMes}"/>&#32;${resumen.pedidosMes eq 1 ? 'venta' : 'ventas'} en el mes</span>
     </div>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Ingresos totales</span><span class="chip chip--aviso"><ui:icono nombre="grafico" tam="18"/></span></div>
-        <strong class="indicador__valor"><c:out value="${resumen.ingresosTotalTexto}"/></strong>
+        <strong class="indicador__valor" data-valor="${resumen.ingresosTotal}" data-formato="soles"><c:out value="${resumen.ingresosTotalTexto}"/></strong>
         <span class="nota"><c:out value="${resumen.pedidosTotal}"/>&#32;${resumen.pedidosTotal eq 1 ? 'venta' : 'ventas'} en total</span>
     </div>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Ticket promedio</span><span class="chip"><ui:icono nombre="comprobante" tam="18"/></span></div>
-        <strong class="indicador__valor"><c:out value="${resumen.ticketPromedioTexto}"/></strong>
+        <strong class="indicador__valor" data-valor="${resumen.ticketPromedio}" data-formato="soles"><c:out value="${resumen.ticketPromedioTexto}"/></strong>
         <span class="nota">por venta</span>
     </div>
-    <a class="indicador indicador--enlace" href="${ctx}/admin?accion=pedidos">
+    <a class="indicador indicador--enlace" data-revelar href="${ctx}/admin?accion=pedidos">
         <div class="indicador__cabecera"><span class="etiqueta">Pedidos pendientes</span><span class="chip chip--aviso"><ui:icono nombre="alerta" tam="18"/></span></div>
-        <strong class="indicador__valor ${resumen.pedidosPendientes gt 0 ? 'texto-aviso' : ''}"><c:out value="${resumen.pedidosPendientes}"/></strong>
+        <strong class="indicador__valor ${resumen.pedidosPendientes gt 0 ? 'texto-aviso' : ''}" data-valor="${resumen.pedidosPendientes}" data-formato="entero"><c:out value="${resumen.pedidosPendientes}"/></strong>
         <span class="nota">confirmados o en preparación</span>
     </a>
-    <div class="indicador">
+    <div class="indicador" data-revelar>
         <div class="indicador__cabecera"><span class="etiqueta">Unidades vendidas</span><span class="chip chip--ok"><ui:icono nombre="caja" tam="18"/></span></div>
-        <strong class="indicador__valor"><c:out value="${resumen.unidadesVendidas}"/></strong>
+        <strong class="indicador__valor" data-valor="${resumen.unidadesVendidas}" data-formato="entero"><c:out value="${resumen.unidadesVendidas}"/></strong>
         <span class="nota">en ventas válidas</span>
     </div>
 </section>
 
 <section class="dos-columnas">
     <div class="columna-principal">
-        <div class="tarjeta">
+        <div class="tarjeta" data-revelar>
             <div class="tarjeta__encabezado">
                 <h2 class="tarjeta__titulo">Pedidos por estado</h2>
                 <p class="nota">Cantidad de pedidos en cada etapa del flujo de atención.</p>
@@ -81,7 +81,7 @@
                         <c:forEach var="e" items="${resumen.pedidosPorEstado}">
                             <li>
                                 <span class="barras__nombre"><ui:insigniaEstado estado="${e.key}"/></span>
-                                <span class="barras__pista"><span class="barras__valor ${e.key eq 'Anulado' ? 'barras__valor--error' : 'barras__valor--principal'}" style="width: ${maxEstado gt 0 ? e.value * 100 / maxEstado : 0}%"></span></span>
+                                <span class="barras__pista"><span class="barras__valor ancho-pct-${maxEstado gt 0 ? fn:substringBefore(e.value * 100 / maxEstado, '.') : 0} ${e.key eq 'Anulado' ? 'barras__valor--error' : 'barras__valor--principal'}"></span></span>
                                 <span class="barras__monto mono"><c:out value="${e.value}"/></span>
                             </li>
                         </c:forEach>
@@ -90,7 +90,7 @@
             </c:choose>
         </div>
 
-        <div class="tarjeta">
+        <div class="tarjeta" data-revelar>
             <div class="tarjeta__encabezado">
                 <h2 class="tarjeta__titulo">Productos más vendidos</h2>
                 <p class="nota">Ordenados por monto vendido; se indican las unidades.</p>
@@ -100,7 +100,7 @@
     </div>
 
     <div class="columna-lateral">
-        <div class="tarjeta">
+        <div class="tarjeta" data-revelar>
             <div class="tarjeta__encabezado">
                 <h2 class="tarjeta__titulo">Alertas de stock</h2>
                 <p class="nota">Productos con <c:out value="${umbralStock}"/> unidades o menos.</p>

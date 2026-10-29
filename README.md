@@ -153,3 +153,26 @@ Cualquier otro número con dígito verificador (Luhn) correcto de Visa, Masterca
 Un pago rechazado no descuenta stock ni crea pedido. Si se aprueba, con SQL Server el stock, el pedido y el pago se confirman en una sola transacción (si algo falla, se revierte todo).
 
 **Seguridad de los datos de pago:** no se almacena el número completo de la tarjeta ni el CVV (tampoco el código de Yape). Del medio de pago solo se guardan la marca, los últimos 4 dígitos y el nombre del titular; el número, el CVV y el código Yape tampoco se devuelven al formulario tras un error. Además, todos los formularios POST llevan un token CSRF (`_csrf`) que valida `SesionFilter`, que también normaliza la ruta y rechaza con 400 las URI con traversal (`;`, `/..`, `\`, `%2e`). Cada checkout lleva un token de un solo uso (`tokenCheckout`) que evita el doble envío y comprueba que el precio no haya cambiado desde que se mostró el total.
+
+## Despliegue en Azure
+
+NEXORA se empaqueta como contenedor (`Dockerfile`, Tomcat 11 con Java 21) y se publica en **Azure Container Apps** con **Azure SQL Database** (oferta gratuita). La infraestructura es código (`infra/main.bicep` y scripts en `infra/`) y GitHub Actions (`.github/workflows/ci.yml`) compila, prueba, construye la imagen, la publica en GHCR y despliega. Guía paso a paso para Azure for Students (verificación local con `docker compose`, creación de recursos, inicialización de la base, OIDC, costos, registros, rotación de claves y eliminación): [`docs/DESPLIEGUE.md`](docs/DESPLIEGUE.md).
+
+```
+docker compose up -d --build      # pila real en local: http://localhost:8080 (copia antes .env.example a .env)
+bash infra/crear-infra.sh         # crea la infraestructura en Azure (pide confirmación)
+```
+
+Variables de entorno de la aplicación (el contenedor las recibe en tiempo de ejecución; nunca se guardan en la imagen):
+
+| Variable | Valores | Efecto |
+| --- | --- | --- |
+| `NEXORA_ENTORNO` | `desarrollo` (defecto) / `produccion` (imagen Docker) | En producción nunca se usa el respaldo en memoria: si SQL falla, la tienda responde 503 |
+| `DB_URL` | cadena JDBC de SQL Server o Azure SQL | Obligatoria en producción |
+| `DB_USER` | usuario SQL (`nexora_app` en Azure) | Obligatoria en producción |
+| `DB_PASSWORD` | clave del usuario | Obligatoria en producción; en Azure es el secreto `db-password` |
+| `NEXORA_DEMO` | `true` / `false` | Cinta "Entorno de demostración" y cuenta demo en el login |
+| `NEXORA_VERSION` | sha corto del commit (defecto `dev`) | Versión que informa `/salud` y se usa en `?v=` de CSS y JS |
+| `NEXORA_COOKIE_SEGURA` | `true` / `false` (defecto: `true` en producción) | Atributo Secure de la cookie de sesión; `false` solo para probar por `http://localhost` |
+
+`GET /salud` devuelve 200 con `{"estado","version","entorno"}` sin consultar la base (`/salud?bd=1` sí hace `SELECT 1`) y lo usan las sondas de Azure.

@@ -5,7 +5,7 @@
 <c:set var="ctx" value="${pageContext.request.contextPath}"/>
 <section class="rejilla-tienda">
     <c:forEach var="p" items="${productos}">
-        <article class="tarjeta-producto">
+        <article class="tarjeta-producto" data-revelar data-inclinar>
             <ui:fotoProducto producto="${p}"/>
             <div class="tarjeta-producto__cuerpo">
                 <div class="tarjeta-producto__meta">

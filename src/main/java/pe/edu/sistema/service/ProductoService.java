@@ -18,6 +18,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import pe.edu.sistema.model.Categoria;
 import pe.edu.sistema.model.CategoriaResumen;
 import pe.edu.sistema.model.MovimientoStock;
@@ -28,14 +31,23 @@ import pe.edu.sistema.model.ResultadoCompra;
 import pe.edu.sistema.model.SolicitudPago;
 import pe.edu.sistema.model.Usuario;
 import pe.edu.sistema.util.ConexionBD;
+import pe.edu.sistema.util.ConfigApp;
+import pe.edu.sistema.util.DatosNoDisponiblesException;
 
 /**
  * Servicio: lógica de negocio y persistencia híbrida del sistema NEXORA (Semana 04 - Semana 06).
  * Cuando Microsoft SQL Server / Azure SQL está activo, consulta y persiste en
- * las tablas dbo.producto, dbo.categoria, dbo.pedido y dbo.pago; si no hay conexión disponible,
- * opera automáticamente sobre las colecciones en memoria.
+ * las tablas dbo.producto, dbo.categoria, dbo.pedido, dbo.entrega y dbo.pago; si no hay conexión disponible,
+ * en desarrollo opera automáticamente sobre las colecciones en memoria.
+ *
+ * <p>Criterio en producción ({@link ConfigApp#esProduccion()}): nunca se usa ni se modifica la memoria. Sin base
+ * configurada, o ante un fallo de conexión o una consulta que no puede resolverse, los métodos lanzan
+ * {@link DatosNoDisponiblesException} (una {@link IllegalStateException}) que la capa web convierte en 503.
+ * Las colecciones en memoria y el mapa de envíos solo existen para desarrollo y pruebas.</p>
  */
 public class ProductoService {
+
+    private static final Logger LOG = Logger.getLogger(ProductoService.class.getName());
 
     public static final List<String> CATEGORIAS = List.of(
             "Computadoras", "Accesorios", "Monitores", "Impresoras", "Almacenamiento", "Redes");
@@ -89,10 +101,39 @@ public class ProductoService {
             + "pg.id_pago, pg.metodo, pg.marca, pg.ultimos_digitos, pg.titular, pg.monto, "
             + "pg.estado AS estado_pago, pg.codigo_autorizacion, pg.codigo_operacion, "
             + "pg.tipo_comprobante, pg.numero_comprobante, pg.documento_cliente, pg.razon_social, "
-            + "pg.fecha_pago "
+            + "pg.fecha_pago, "
+            + "en.tipo_envio, en.departamento AS envio_departamento, en.distrito AS envio_distrito, "
+            + "en.direccion AS envio_direccion, en.referencia AS envio_referencia, en.telefono AS envio_telefono, "
+            + "en.correo_comprobante AS envio_correo, en.notas AS envio_notas "
             + "FROM dbo.pedido ped JOIN dbo.usuario u ON u.id_usuario = ped.id_usuario "
             + "JOIN dbo.producto p ON p.codigo = ped.codigo_producto "
-            + "LEFT JOIN dbo.pago pg ON pg.id_pedido = ped.id_pedido ";
+            + "LEFT JOIN dbo.pago pg ON pg.id_pedido = ped.id_pedido "
+            + "LEFT JOIN dbo.entrega en ON en.id_pedido = ped.id_pedido ";
+
+    /** Datos de entrega del pedido (1:1 con dbo.pedido); se insertan en la misma transacción de la compra. */
+    private static final String SQL_REGISTRAR_ENTREGA =
+            "INSERT INTO dbo.entrega (id_pedido, tipo_envio, departamento, distrito, direccion, referencia, "
+            + "telefono, correo_comprobante, notas) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+    // Longitudes de las columnas de dbo.entrega
+    private static final int MAX_DEPARTAMENTO = 50;
+    private static final int MAX_DISTRITO = 80;
+    private static final int MAX_DIRECCION = 200;
+    private static final int MAX_REFERENCIA = 200;
+    private static final int MAX_TELEFONO = 20;
+    private static final int MAX_CORREO_ENTREGA = 100;
+    private static final int MAX_NOTAS = 300;
+
+    /** Valores de dbo.entrega.tipo_envio. */
+    private static final String ENVIO_DOMICILIO = "DOMICILIO";
+    private static final String ENVIO_RETIRO = "RETIRO";
+    private static final String TEXTO_ENVIO_DOMICILIO = "Envío a Domicilio Express";
+    private static final String TEXTO_ENVIO_RETIRO = "Retiro en Tienda (Almacén Central NEXORA)";
+    private static final String DIRECCION_RETIRO = "Av. República de Panamá 3545, San Isidro (Almacén Central NEXORA)";
+
+    /** Tiempo que se conserva el conteo de productos de la cabecera y espera tras una consulta fallida. */
+    private static final long TTL_CONTEO_MS = 30_000L;
+    private static final long REINTENTO_CONTEO_MS = 5_000L;
 
     /** Correlativo siguiente de la serie: el mayor emitido (últimos 6 dígitos) + 1, aunque falten números. */
     private static final String SQL_CORRELATIVO =
@@ -198,6 +239,9 @@ public class ProductoService {
         p1.setFechaActualizacion("20/10/2026 · 11:00");
         p2.setEstado(Pedido.ENVIADO);
         p2.setFechaActualizacion("19/10/2026 · 09:30");
+        // Misma entrega de muestra que sql/bd_nexora.sql (4.7)
+        aplicarEnvio(p1, envioSemilla(1));
+        aplicarEnvio(p2, envioSemilla(2));
         pedidos.add(p1);
         pedidos.add(p2);
 
@@ -212,6 +256,12 @@ public class ProductoService {
         categorias.add(new Categoria(4, "Impresoras", "Impresoras multifuncionales y de tinta continua", true));
         categorias.add(new Categoria(5, "Almacenamiento", "Unidades de estado sólido SSD, discos duros y memorias USB", true));
         categorias.add(new Categoria(6, "Redes", "Routers inalámbricos, switches y equipos de conectividad", true));
+    }
+
+    /** Entrega a domicilio de muestra de los pedidos semilla. */
+    private static InfoEnvio envioSemilla(int idPedido) {
+        return new InfoEnvio(TEXTO_ENVIO_DOMICILIO, "Lima", "Miraflores", "Av. Larco 345, Miraflores",
+                "Frente al parque Kennedy", "987654321", "cliente@nexora.pe", codigoSeguimiento(idPedido), "");
     }
 
     /** Salida por venta del cliente de muestra. */
@@ -257,7 +307,7 @@ public class ProductoService {
     // ---------------------------------------------------------------- consultas
 
     public synchronized List<Producto> listar() {
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_LISTAR);
                  ResultSet rs = ps.executeQuery()) {
@@ -274,7 +324,7 @@ public class ProductoService {
                 }
                 return listaBD;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallarSinRespaldo(ex);   // producción: lanza; desarrollo: vuelve a probar la conexión
             }
         }
         return new ArrayList<>(productos);
@@ -282,6 +332,49 @@ public class ProductoService {
 
     public synchronized int contar() {
         return listar().size();
+    }
+
+    private volatile int conteoCacheado;
+    private volatile long conteoVenceEn;
+    /** Cambia con cada invalidación: un conteo que empezó antes de un registro o eliminación no se guarda. */
+    private final AtomicInteger generacionConteo = new AtomicInteger();
+
+    /**
+     * Cantidad de productos para la cabecera de todas las páginas: se conserva 30 segundos para no consultar la
+     * base en cada petición, y se invalida al registrar o eliminar un producto. Nunca lanza: si la consulta falla
+     * devuelve el último valor conocido (0 al inicio) y vuelve a intentarlo en 5 segundos, de modo que una base
+     * caída no retrasa ni rompe cada página.
+     */
+    public int contarParaCabecera() {
+        long ahora = System.currentTimeMillis();
+        if (ahora < conteoVenceEn) {
+            return conteoCacheado;
+        }
+        int generacion = generacionConteo.get();
+        try {
+            int total = contar();
+            if (generacion == generacionConteo.get()) {
+                conteoCacheado = total;
+                conteoVenceEn = System.currentTimeMillis() + TTL_CONTEO_MS;
+            }
+            return total;
+        } catch (IllegalStateException ex) {
+            conteoVenceEn = System.currentTimeMillis() + REINTENTO_CONTEO_MS;
+            return conteoCacheado;
+        }
+    }
+
+    /** Descarta el conteo guardado: el siguiente {@link #contarParaCabecera()} consulta de nuevo. */
+    private void invalidarConteo() {
+        generacionConteo.incrementAndGet();
+        conteoVenceEn = 0;
+    }
+
+    /** Producción: registra el fallo y lanza {@link DatosNoDisponiblesException}; desarrollo: no hace nada. */
+    private static void sinDatosEnProduccion(SQLException ex) {
+        if (ConfigApp.esProduccion()) {
+            ConexionBD.alFallarSinRespaldo(ex);
+        }
     }
 
     public synchronized Producto buscarPorCodigo(String codigo) {
@@ -345,7 +438,7 @@ public class ProductoService {
      */
     public synchronized boolean registrar(Producto p, Usuario actor) {
         String username = actor == null ? null : actor.getUsername();
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             String error = transaccion(cn -> {
                 try (PreparedStatement ps = cn.prepareStatement(SQL_REGISTRAR)) {
                     ps.setString(1, p.getCodigo());
@@ -363,10 +456,11 @@ public class ProductoService {
                 return null;
             });
             if (error == null) {
+                invalidarConteo();
                 return true;
             }
             if (ConexionBD.estaDisponible()) {
-                // La base sigue activa: no se toca la copia en memoria
+                // La base sigue activa (en producción siempre): no se toca la copia en memoria
                 return false;
             }
         }
@@ -374,6 +468,7 @@ public class ProductoService {
         if (p.getStock() > 0) {
             registrarMovimientoMemoria(p, MovimientoStock.ENTRADA, p.getStock(), MOTIVO_STOCK_INICIAL, username, ahora());
         }
+        invalidarConteo();
         return true;
     }
 
@@ -385,7 +480,7 @@ public class ProductoService {
      */
     public synchronized boolean actualizar(Producto datos) {
         String codigo = normalizarCodigo(datos.getCodigo());
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             boolean[] actualizado = {false};
             String error = transaccion(cn -> {
                 int stock;
@@ -435,17 +530,22 @@ public class ProductoService {
      */
     public synchronized ResultadoEliminacion eliminar(String codigo) {
         String c = normalizarCodigo(codigo);
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_ELIMINAR)) {
                 ps.setString(1, c);
-                return ps.executeUpdate() > 0 ? ResultadoEliminacion.ELIMINADO : ResultadoEliminacion.NO_ENCONTRADO;
+                if (ps.executeUpdate() > 0) {
+                    invalidarConteo();
+                    return ResultadoEliminacion.ELIMINADO;
+                }
+                return ResultadoEliminacion.NO_ENCONTRADO;
             } catch (SQLException ex) {
                 if (ex.getErrorCode() == ERROR_SQL_FK) {
                     return ResultadoEliminacion.CON_PEDIDOS;
                 }
-                if (ConexionBD.probarConexion()) {
-                    // La base sigue activa: no se toca la copia en memoria
+                ConexionBD.alFallar(ex);   // producción: lanza si no hay conexión; desarrollo: vuelve a probarla
+                if (ConexionBD.estaDisponible()) {
+                    // La base sigue activa (en producción siempre): no se toca la copia en memoria
                     return ResultadoEliminacion.ERROR;
                 }
             }
@@ -460,6 +560,7 @@ public class ProductoService {
             return ResultadoEliminacion.CON_PEDIDOS;
         }
         productos.remove(existente);
+        invalidarConteo();
         return ResultadoEliminacion.ELIMINADO;
     }
 
@@ -478,7 +579,7 @@ public class ProductoService {
             return ResultadoCompra.fallo("La cantidad solicitada debe ser mayor que cero.");
         }
         // Modo de persistencia con el que empieza la compra: no puede cambiar a mitad de camino
-        boolean modoSql = ConexionBD.estaDisponible();
+        boolean modoSql = ConexionBD.usarSql();
         Producto p = buscarPorCodigo(codigo);
         if (ConexionBD.estaDisponible() != modoSql) {
             return ResultadoCompra.fallo(MSG_SIN_SERVICIO);
@@ -607,6 +708,9 @@ public class ProductoService {
                 // Kardex: la salida por la venta se confirma o se revierte junto con el pedido
                 insertarMovimientoBD(cn, codigo, MovimientoStock.SALIDA, -cantidad, stockAnterior - cantidad,
                         "Venta " + codigoPedido(idPedido), cliente.getUsername());
+                // Datos de entrega: también dentro de la misma transacción (1:1 con el pedido)
+                InfoEnvio envio = infoEnvio(idPedido, solicitud);
+                insertarEntregaBD(cn, idPedido, solicitud, envio);
 
                 long correlativo;
                 try (PreparedStatement ps = cn.prepareStatement(SQL_CORRELATIVO)) {
@@ -650,13 +754,15 @@ public class ProductoService {
                         codigo, nombre, cantidad, precio, fechaTexto);
                 pedido.setFechaHora(fecha.toLocalDateTime());
                 pedido.setPago(pago);
-                aplicarInfoEnvio(pedido, solicitud);
+                aplicarEnvio(pedido, envio);
                 return ResultadoCompra.exito(pedido);
             } catch (SQLException ex) {
                 cn.rollback();
+                LOG.log(Level.WARNING, "No se pudo confirmar el pedido en la base de datos: {0}", ex.getMessage());
                 return ResultadoCompra.fallo("No se pudo confirmar el pedido; el cargo fue anulado. Intenta nuevamente.");
             }
         } catch (SQLException ex) {
+            LOG.log(Level.WARNING, "No se pudo abrir la transacción del pedido: {0}", ex.getMessage());
             return ResultadoCompra.fallo("No se pudo confirmar el pedido; el cargo fue anulado. Intenta nuevamente.");
         }
     }
@@ -690,56 +796,109 @@ public class ProductoService {
             String notasPedido
     ) implements java.io.Serializable {}
 
+    /** Envíos de los pedidos del respaldo en memoria (solo desarrollo y pruebas; con SQL viven en dbo.entrega). */
     private static final Map<Integer, InfoEnvio> ENVIOS_POR_PEDIDO = new ConcurrentHashMap<>();
 
-    private static void aplicarInfoEnvio(Pedido pedido, SolicitudPago solicitud) {
-        if (pedido == null) return;
-        boolean retiro = solicitud != null && "RETIRO".equalsIgnoreCase(solicitud.getTipoEnvio());
-        String tipo = retiro ? "Retiro en Tienda (Almacén Central NEXORA)" : "Envío a Domicilio Express";
+    private static boolean esRetiro(SolicitudPago solicitud) {
+        return solicitud != null && ENVIO_RETIRO.equalsIgnoreCase(solicitud.getTipoEnvio());
+    }
+
+    /** Código de seguimiento derivado del número de pedido (no se guarda en la base). */
+    private static String codigoSeguimiento(int idPedido) {
+        return String.format("NEX-TRK-%06d", (idPedido * 379 + 5421) % 900000 + 100000);
+    }
+
+    /**
+     * Datos de entrega normalizados de la solicitud (lo que se muestra y lo que se guarda en dbo.entrega),
+     * ya recortados a la longitud de sus columnas.
+     */
+    private static InfoEnvio infoEnvio(int idPedido, SolicitudPago solicitud) {
+        boolean retiro = esRetiro(solicitud);
+        String tipo = retiro ? TEXTO_ENVIO_RETIRO : TEXTO_ENVIO_DOMICILIO;
         String depto = solicitud != null && solicitud.getDepartamento() != null && !solicitud.getDepartamento().isBlank()
                 ? solicitud.getDepartamento().trim() : "Lima";
         String dist = solicitud != null && solicitud.getDistrito() != null && !solicitud.getDistrito().isBlank()
                 ? solicitud.getDistrito().trim() : (retiro ? "San Isidro" : "Lima Cercado");
         String dir = retiro
-                ? "Av. República de Panamá 3545, San Isidro (Almacén Central NEXORA)"
+                ? DIRECCION_RETIRO
                 : (solicitud != null && solicitud.getDireccion() != null && !solicitud.getDireccion().isBlank()
                     ? solicitud.getDireccion().trim() : "Dirección registrada");
         String ref = solicitud != null && solicitud.getReferencia() != null ? solicitud.getReferencia().trim() : "";
         String tel = solicitud != null && solicitud.getTelefonoContacto() != null ? solicitud.getTelefonoContacto().trim() : "";
         String correo = solicitud != null && solicitud.getCorreoComprobante() != null ? solicitud.getCorreoComprobante().trim() : "";
         String notas = solicitud != null && solicitud.getNotasPedido() != null ? solicitud.getNotasPedido().trim() : "";
-        String tracking = String.format("NEX-TRK-%06d", (pedido.getIdPedido() * 379 + 5421) % 900000 + 100000);
-
-        pedido.setTipoEnvio(tipo);
-        pedido.setDepartamento(depto);
-        pedido.setDistrito(dist);
-        pedido.setDireccionEnvio(dir);
-        pedido.setReferenciaEnvio(ref);
-        pedido.setTelefonoContacto(tel);
-        pedido.setCorreoContacto(correo);
-        pedido.setCodigoSeguimiento(tracking);
-        pedido.setNotasPedido(notas);
-
-        ENVIOS_POR_PEDIDO.put(pedido.getIdPedido(), new InfoEnvio(tipo, depto, dist, dir, ref, tel, correo, tracking, notas));
+        return new InfoEnvio(tipo, recortar(depto, MAX_DEPARTAMENTO), recortar(dist, MAX_DISTRITO),
+                recortar(dir, MAX_DIRECCION), recortar(ref, MAX_REFERENCIA), recortar(tel, MAX_TELEFONO),
+                recortar(correo, MAX_CORREO_ENTREGA), codigoSeguimiento(idPedido), recortar(notas, MAX_NOTAS));
     }
 
+    private static void aplicarEnvio(Pedido pedido, InfoEnvio info) {
+        pedido.setTipoEnvio(info.tipoEnvio());
+        pedido.setDepartamento(info.departamento());
+        pedido.setDistrito(info.distrito());
+        pedido.setDireccionEnvio(info.direccion());
+        pedido.setReferenciaEnvio(info.referencia());
+        pedido.setTelefonoContacto(info.telefonoContacto());
+        pedido.setCorreoContacto(info.correoContacto());
+        pedido.setCodigoSeguimiento(info.codigoSeguimiento());
+        pedido.setNotasPedido(info.notasPedido());
+    }
+
+    /** Respaldo en memoria: aplica los datos de entrega al pedido y los recuerda por número de pedido. */
+    private static void aplicarInfoEnvio(Pedido pedido, SolicitudPago solicitud) {
+        if (pedido == null) return;
+        InfoEnvio info = infoEnvio(pedido.getIdPedido(), solicitud);
+        aplicarEnvio(pedido, info);
+        ENVIOS_POR_PEDIDO.put(pedido.getIdPedido(), info);
+    }
+
+    /** Respaldo en memoria: restablece la entrega recordada (o solo el seguimiento en los pedidos de muestra). */
     private static void aplicarInfoEnvioGuardada(Pedido pedido) {
         if (pedido == null) return;
         InfoEnvio info = ENVIOS_POR_PEDIDO.get(pedido.getIdPedido());
         if (info != null) {
-            pedido.setTipoEnvio(info.tipoEnvio());
-            pedido.setDepartamento(info.departamento());
-            pedido.setDistrito(info.distrito());
-            pedido.setDireccionEnvio(info.direccion());
-            pedido.setReferenciaEnvio(info.referencia());
-            pedido.setTelefonoContacto(info.telefonoContacto());
-            pedido.setCorreoContacto(info.correoContacto());
-            pedido.setCodigoSeguimiento(info.codigoSeguimiento());
-            pedido.setNotasPedido(info.notasPedido());
+            aplicarEnvio(pedido, info);
         } else {
-            String tracking = String.format("NEX-TRK-%06d", (pedido.getIdPedido() * 379 + 5421) % 900000 + 100000);
-            pedido.setCodigoSeguimiento(tracking);
+            pedido.setCodigoSeguimiento(codigoSeguimiento(pedido.getIdPedido()));
         }
+    }
+
+    /** Inserta la entrega del pedido (dbo.entrega, 1:1) dentro de la transacción de la compra. */
+    private static void insertarEntregaBD(Connection cn, int idPedido, SolicitudPago solicitud, InfoEnvio info)
+            throws SQLException {
+        try (PreparedStatement ps = cn.prepareStatement(SQL_REGISTRAR_ENTREGA)) {
+            ps.setInt(1, idPedido);
+            ps.setString(2, esRetiro(solicitud) ? ENVIO_RETIRO : ENVIO_DOMICILIO);
+            ps.setString(3, info.departamento());
+            ps.setString(4, info.distrito());
+            ps.setString(5, info.direccion());
+            ps.setString(6, vacioANulo(info.referencia()));
+            ps.setString(7, vacioANulo(info.telefonoContacto()));
+            ps.setString(8, vacioANulo(info.correoContacto()));
+            ps.setString(9, vacioANulo(info.notasPedido()));
+            ps.executeUpdate();
+        }
+    }
+
+    private static String vacioANulo(String texto) {
+        return texto == null || texto.isEmpty() ? null : texto;
+    }
+
+    /** Lee la entrega del pedido desde las columnas de {@link #SQL_PEDIDOS} (nulas en pedidos anteriores a dbo.entrega). */
+    private static void leerEntrega(ResultSet rs, Pedido pedido) throws SQLException {
+        pedido.setCodigoSeguimiento(codigoSeguimiento(pedido.getIdPedido()));
+        String tipo = rs.getString("tipo_envio");
+        if (tipo == null) {
+            return;
+        }
+        pedido.setTipoEnvio(ENVIO_RETIRO.equalsIgnoreCase(tipo) ? TEXTO_ENVIO_RETIRO : TEXTO_ENVIO_DOMICILIO);
+        pedido.setDepartamento(texto(rs.getString("envio_departamento")));
+        pedido.setDistrito(texto(rs.getString("envio_distrito")));
+        pedido.setDireccionEnvio(texto(rs.getString("envio_direccion")));
+        pedido.setReferenciaEnvio(texto(rs.getString("envio_referencia")));
+        pedido.setTelefonoContacto(texto(rs.getString("envio_telefono")));
+        pedido.setCorreoContacto(texto(rs.getString("envio_correo")));
+        pedido.setNotasPedido(texto(rs.getString("envio_notas")));
     }
 
     // ---------------------------------------------------------------- pedidos
@@ -752,7 +911,7 @@ public class ProductoService {
     public synchronized Pedido buscarPedido(int idPedido, Usuario solicitante) {
         if (solicitante == null) return null;
         Pedido encontrado = null;
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_PEDIDOS + "WHERE ped.id_pedido = ?")) {
                 ps.setInt(1, idPedido);
@@ -760,6 +919,7 @@ public class ProductoService {
                     if (rs.next()) encontrado = pedidoDesde(rs);
                 }
             } catch (SQLException ex) {
+                sinDatosEnProduccion(ex);
                 throw new IllegalStateException("No se pudo consultar el pedido.", ex);
             }
         } else {
@@ -769,8 +929,6 @@ public class ProductoService {
                     break;
                 }
             }
-        }
-        if (encontrado != null) {
             aplicarInfoEnvioGuardada(encontrado);
         }
         return encontrado != null && puedeVer(encontrado, solicitante) ? encontrado : null;
@@ -797,7 +955,7 @@ public class ProductoService {
         if (u == null) return new ArrayList<>();
         boolean personal = esPersonal(u);
         if (!personal && !u.isCliente()) return new ArrayList<>();
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             String sql = SQL_PEDIDOS
                     + (personal ? "" : "WHERE LOWER(u.username) = LOWER(?) ")
                     + "ORDER BY ped.id_pedido DESC";
@@ -809,6 +967,7 @@ public class ProductoService {
                     return resultado;
                 }
             } catch (SQLException ex) {
+                sinDatosEnProduccion(ex);
                 throw new IllegalStateException("No se pudo consultar el historial de pedidos.", ex);
             }
         }
@@ -896,6 +1055,7 @@ public class ProductoService {
             pago.setFecha(rs.getTimestamp("fecha_pago").toLocalDateTime().format(FORMATO_FECHA));
             pedido.setPago(pago);
         }
+        leerEntrega(rs, pedido);
         return pedido;
     }
 
@@ -945,7 +1105,7 @@ public class ProductoService {
         if (destino.isEmpty()) {
             return "Indica el nuevo estado del pedido.";
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 String actual;
                 try (PreparedStatement ps = cn.prepareStatement(SQL_PEDIDO_BLOQUEADO)) {
@@ -962,7 +1122,7 @@ public class ProductoService {
                     return error;
                 }
                 try (PreparedStatement ps = cn.prepareStatement(
-                        "UPDATE dbo.pedido SET estado = ?, fecha_actualizacion = SYSDATETIME() WHERE id_pedido = ?")) {
+                        "UPDATE dbo.pedido SET estado = ?, fecha_actualizacion = CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0)) WHERE id_pedido = ?")) {
                     ps.setString(1, destino);
                     ps.setInt(2, idPedido);
                     if (ps.executeUpdate() != 1) {
@@ -1000,7 +1160,7 @@ public class ProductoService {
         if (razon.length() > MAX_MOTIVO) {
             return "El motivo admite como máximo " + MAX_MOTIVO + " caracteres.";
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 Pedido ref = new Pedido();
                 ref.setIdPedido(idPedido);
@@ -1032,7 +1192,7 @@ public class ProductoService {
                     }
                 }
                 try (PreparedStatement ps = cn.prepareStatement(
-                        "UPDATE dbo.pedido SET estado = ?, fecha_actualizacion = SYSDATETIME() WHERE id_pedido = ?")) {
+                        "UPDATE dbo.pedido SET estado = ?, fecha_actualizacion = CAST(SYSDATETIMEOFFSET() AT TIME ZONE N'SA Pacific Standard Time' AS DATETIME2(0)) WHERE id_pedido = ?")) {
                     ps.setString(1, Pedido.ANULADO);
                     ps.setInt(2, idPedido);
                     if (ps.executeUpdate() != 1) {
@@ -1166,7 +1326,7 @@ public class ProductoService {
             return "Indica el producto.";
         }
         final String tipoFinal = tipoMovimiento;
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 int stock;
                 try (PreparedStatement ps = cn.prepareStatement(
@@ -1215,7 +1375,7 @@ public class ProductoService {
             return resultado;
         }
         String c = normalizarCodigo(codigo);
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             String sql = SQL_MOVIMIENTOS + (c.isEmpty() ? "" : "WHERE m.codigo_producto = ? ")
                     + "ORDER BY m.fecha DESC, m.id_movimiento DESC";
             try (Connection cn = ConexionBD.obtenerConexion(); PreparedStatement ps = cn.prepareStatement(sql)) {
@@ -1241,6 +1401,7 @@ public class ProductoService {
                 }
                 return resultado;
             } catch (SQLException ex) {
+                sinDatosEnProduccion(ex);
                 throw new IllegalStateException("No se pudo consultar el kardex de inventario.", ex);
             }
         }
@@ -1336,7 +1497,7 @@ public class ProductoService {
      * @throws IllegalStateException si SQL Server está activo pero la consulta falla (no se mezcla con la memoria)
      */
     public synchronized List<Categoria> listarCategorias(boolean soloActivas) {
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             String sql = SQL_CATEGORIAS + (soloActivas ? "WHERE c.activo = 1 " : "") + "ORDER BY c.nombre";
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(sql);
@@ -1351,7 +1512,7 @@ public class ProductoService {
                 }
                 return listaBD;
             } catch (SQLException ex) {
-                ConexionBD.probarConexion();
+                ConexionBD.alFallarSinRespaldo(ex);   // producción: lanza; desarrollo: vuelve a probar la conexión
                 if (ConexionBD.estaDisponible()) {
                     throw new IllegalStateException("No se pudo consultar las categorías.", ex);
                 }
@@ -1398,7 +1559,7 @@ public class ProductoService {
         if (error != null) {
             return error;
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 if (existeNombreCategoriaBD(cn, n, 0)) {
                     return mensajeCategoriaDuplicada(n);
@@ -1436,7 +1597,7 @@ public class ProductoService {
         if (error != null) {
             return error;
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 try (PreparedStatement ps = cn.prepareStatement(
                         "SELECT 1 FROM dbo.categoria WITH (UPDLOCK, HOLDLOCK) WHERE id_categoria = ?")) {
@@ -1488,7 +1649,7 @@ public class ProductoService {
         if (actor == null || !actor.isPuedeAdministrarSistema()) {
             return MSG_SOLO_ADMIN_CATEGORIAS;
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 try (PreparedStatement ps = cn.prepareStatement(
                         "UPDATE dbo.categoria SET activo = ? WHERE id_categoria = ?")) {
@@ -1511,7 +1672,7 @@ public class ProductoService {
         if (actor == null || !actor.isPuedeAdministrarSistema()) {
             return MSG_SOLO_ADMIN_CATEGORIAS;
         }
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             return transaccion(cn -> {
                 String nombre;
                 try (PreparedStatement ps = cn.prepareStatement(
@@ -1629,7 +1790,8 @@ public class ProductoService {
     /**
      * Ejecuta la operación en una transacción: se confirma si devuelve null y se revierte si devuelve un
      * mensaje o lanza {@link SQLException}. Nunca recurre a la memoria: si la base falla, no queda ningún
-     * cambio y se informa del error (y se vuelve a comprobar la conexión para las siguientes peticiones).
+     * cambio y se informa del error (en desarrollo se vuelve a comprobar la conexión para las siguientes
+     * peticiones; en producción un fallo de conexión lanza {@link DatosNoDisponiblesException}).
      */
     private String transaccion(OperacionSql operacion) {
         try (Connection cn = ConexionBD.obtenerConexion()) {
@@ -1647,7 +1809,7 @@ public class ProductoService {
                 throw ex;
             }
         } catch (SQLException ex) {
-            ConexionBD.probarConexion();
+            ConexionBD.alFallar(ex);
             return MSG_ERROR_BD;
         }
     }

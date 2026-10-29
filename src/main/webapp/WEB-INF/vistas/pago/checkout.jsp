@@ -112,7 +112,7 @@
 
             <%-- Panel Retiro en Tienda --%>
             <div class="panel-entrega" data-panel-envio="RETIRO" ${esRetiro ? '' : 'hidden'}>
-                <div class="alerta alerta--info" style="margin-top:0.5rem;">
+                <div class="alerta alerta--info mt-sm">
                     <ui:icono nombre="info"/>
                     <div>
                         <strong>Punto de entrega oficial NEXORA</strong>
@@ -123,7 +123,7 @@
             </div>
 
             <%-- Datos de Contacto para entrega --%>
-            <div class="rejilla-campos" style="margin-top:0.75rem;">
+            <div class="rejilla-campos mt-md">
                 <div class="campo ${not empty errores.telefonoContacto ? 'campo--error' : ''}">
                     <label for="telefonoContacto">Celular de contacto / WhatsApp *</label>
                     <input id="telefonoContacto" name="telefonoContacto" type="tel" inputmode="tel" maxlength="9"
@@ -275,7 +275,7 @@
                 <div><dt>Precio unitario</dt><dd class="mono"><c:out value="${producto.precioTexto}"/></dd></div>
                 <div><dt>Subtotal sin IGV</dt><dd class="mono"><c:out value="${subtotalTexto}"/></dd></div>
                 <div><dt>IGV 18 %</dt><dd class="mono"><c:out value="${igvTexto}"/></dd></div>
-                <div><dt>Despacho</dt><dd><span style="color:var(--color-exito, #10b981); font-weight:600;">Gratis</span> (Promoción Web)</dd></div>
+                <div><dt>Despacho</dt><dd><span class="texto-gratis">Gratis</span> (Promoción Web)</dd></div>
                 <div><dt>Tiempo estimado</dt><dd>24 a 48 hrs hábiles</dd></div>
             </dl>
             <div class="resumen-pedido__total">

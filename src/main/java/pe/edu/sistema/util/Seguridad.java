@@ -81,6 +81,22 @@ public final class Seguridad {
         return valor != null && valor.startsWith(PREFIJO + "$");
     }
 
+    /**
+     * Herramienta de línea de comandos: imprime solo el hash de {@code args[0]} (y nada más en la salida estándar).
+     * La usa el script de inicialización de la base para guardar las claves privadas ya cifradas.
+     * Sin argumento, termina con código 2 y un mensaje en la salida de error.
+     */
+    public static void main(String[] args) {
+        if (args == null || args.length < 1 || args[0].isEmpty()) {
+            System.err.println("Uso: java -cp ... pe.edu.sistema.util.Seguridad <clave>");
+            System.exit(2);
+            return;
+        }
+        // Salto de línea fijo (no el del sistema): el script de inicialización lee la línea sin retorno de carro
+        System.out.print(hashClave(args[0]) + "\n");
+        System.out.flush();
+    }
+
     private static byte[] derivar(String clave, byte[] sal, int iteraciones) {
         PBEKeySpec spec = new PBEKeySpec(clave.toCharArray(), sal, iteraciones, BITS_HASH);
         try {

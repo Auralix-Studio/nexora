@@ -17,6 +17,10 @@ public class Usuario {
     private String correo;
     private String rol;
     private boolean activo;
+    /** DNI del cliente (8 dígitos); null si no lo registró. */
+    private String dni;
+    /** Celular del cliente (9 dígitos, empieza con 9); null si no lo registró. */
+    private String telefono;
 
     public Usuario() {
     }
@@ -28,6 +32,13 @@ public class Usuario {
         this.correo = correo;
         this.rol = rol;
         this.activo = activo;
+    }
+
+    public Usuario(int idUsuario, String username, String nombreCompleto, String correo, String rol, boolean activo,
+            String dni, String telefono) {
+        this(idUsuario, username, nombreCompleto, correo, rol, activo);
+        this.dni = dni;
+        this.telefono = telefono;
     }
 
     public int getIdUsuario() {
@@ -76,6 +87,22 @@ public class Usuario {
 
     public void setActivo(boolean activo) {
         this.activo = activo;
+    }
+
+    public String getDni() {
+        return dni;
+    }
+
+    public void setDni(String dni) {
+        this.dni = dni;
+    }
+
+    public String getTelefono() {
+        return telefono;
+    }
+
+    public void setTelefono(String telefono) {
+        this.telefono = telefono;
     }
 
     /** Permiso total: Administrador. */

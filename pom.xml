@@ -41,6 +41,19 @@
             <version>12.8.1.jre11</version>
         </dependency>
 
+        <!-- Pool de conexiones (perezoso, sin keepalive: Azure SQL serverless puede autopausarse).
+             Sus registros (SLF4J) van a java.util.logging, el mismo registro que usa el resto de la aplicación. -->
+        <dependency>
+            <groupId>com.zaxxer</groupId>
+            <artifactId>HikariCP</artifactId>
+            <version>6.3.3</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-jdk14</artifactId>
+            <version>2.0.17</version>
+        </dependency>
+
         <!-- JUnit 5 (Jupiter): pruebas automatizadas de los servicios en src/test. No viaja dentro del WAR. -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>

@@ -5,10 +5,11 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
-import jakarta.servlet.annotation.WebFilter;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletMapping;
 import jakarta.servlet.http.HttpSession;
+import jakarta.servlet.http.MappingMatch;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -19,13 +20,16 @@ import java.util.Locale;
 import java.util.regex.Pattern;
 import pe.edu.sistema.service.ProductoService;
 import pe.edu.sistema.service.UsuarioService;
+import pe.edu.sistema.util.ConfigApp;
 import pe.edu.sistema.util.Formato;
 
 /**
  * Filtro: codificación UTF-8, rechazo de URI con traversal, control de sesión sobre la ruta normalizada,
  * protección CSRF de todos los POST y datos comunes de la cabecera (fecha actual y cantidad de productos).
+ * Se registra en web.xml (después de {@link CabecerasSeguridadFilter}). {@code /salud} es pública y pasa sin crear
+ * sesión, token CSRF ni consultar productos. Atributos de request para las vistas: {@code appVersion},
+ * {@code modoDemo} y {@code entornoProduccion}.
  */
-@WebFilter(filterName = "SesionFilter", urlPatterns = {"/*"})
 public class SesionFilter implements Filter {
 
     private static final SecureRandom ALEATORIO = new SecureRandom();
@@ -47,6 +51,18 @@ public class SesionFilter implements Filter {
         // Ruta normalizada por el contenedor (sin parámetros de ruta ni segmentos ".."),
         // la misma con la que se despacha la petición al servlet o al recurso.
         String ruta = req.getServletPath() + (req.getPathInfo() != null ? req.getPathInfo() : "");
+
+        // Comprobación de salud: pública y sin efectos (ni sesión, ni CSRF, ni consultas de productos)
+        if (ruta.equals("/salud")) {
+            chain.doFilter(request, response);
+            return;
+        }
+
+        // Datos de entorno para las vistas (cinta de demostración, ?v= de los recursos estáticos)
+        req.setAttribute("appVersion", ConfigApp.version());
+        req.setAttribute("modoDemo", ConfigApp.esDemo());
+        req.setAttribute("entornoProduccion", ConfigApp.esProduccion());
+
         String accion;
         try {
             accion = req.getParameter("accion");
@@ -61,7 +77,10 @@ public class SesionFilter implements Filter {
         boolean esRutaPublica = esEstatica
                 || ruta.equals("/login") || ruta.equals("/logout")
                 || ruta.isEmpty() || ruta.equals("/") || ruta.equals("/index.jsp")
-                || ruta.equals("/inicio") || ruta.equals("/informacion");
+                || ruta.equals("/inicio") || ruta.equals("/informacion")
+                // Sin servlet propio la atiende el servlet por defecto de Tomcat, que solo sirve archivos
+                // públicos (WEB-INF queda fuera): una ruta inexistente debe dar 404, no pedir inicio de sesión
+                || atendidaPorServletPorDefecto(req);
 
         if (ruta.equals("/productos")) {
             // El catálogo y el buscador son 100% públicos para que cualquier cliente vea los productos y precios
@@ -124,7 +143,8 @@ public class SesionFilter implements Filter {
         }
 
         req.setAttribute("fechaActual", Formato.fechaLarga(LocalDate.now()));
-        req.setAttribute("totalProductos", ProductoService.getInstancia().contar());
+        // Conteo guardado 30 s (se invalida al registrar o eliminar): la cabecera no consulta la base cada vez
+        req.setAttribute("totalProductos", ProductoService.getInstancia().contarParaCabecera());
         chain.doFilter(request, response);
     }
 
@@ -138,6 +158,12 @@ public class SesionFilter implements Filter {
         String minusculas = u.toLowerCase(Locale.ROOT);
         return u.indexOf(';') >= 0 || u.contains("/..") || u.indexOf('\\') >= 0
                 || minusculas.contains("%2e") || minusculas.contains("%5c");
+    }
+
+    /** true si ningún servlet de la aplicación atiende la ruta y la resuelve el servlet por defecto del contenedor. */
+    private static boolean atendidaPorServletPorDefecto(HttpServletRequest req) {
+        HttpServletMapping mapeo = req.getHttpServletMapping();
+        return mapeo != null && mapeo.getMappingMatch() == MappingMatch.DEFAULT;
     }
 
     /** 32 caracteres hexadecimales (128 bits) generados con SecureRandom; también lo usa el checkout. */

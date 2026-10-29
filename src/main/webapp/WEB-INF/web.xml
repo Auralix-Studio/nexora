@@ -6,7 +6,25 @@
 
     <display-name>Sistema Web de Gestión de Productos</display-name>
 
-    <!-- Los servlets y el filtro se registran con anotaciones (@WebServlet, @WebFilter). -->
+    <!-- Los servlets y el listener se registran con anotaciones (@WebServlet, @WebListener).
+         Los filtros se declaran aquí porque el orden importa: primero las cabeceras de seguridad (y la
+         conversión de errores de datos en 503), después el control de sesión y CSRF. -->
+    <filter>
+        <filter-name>CabecerasSeguridad</filter-name>
+        <filter-class>pe.edu.sistema.controller.CabecerasSeguridadFilter</filter-class>
+    </filter>
+    <filter>
+        <filter-name>Sesion</filter-name>
+        <filter-class>pe.edu.sistema.controller.SesionFilter</filter-class>
+    </filter>
+    <filter-mapping>
+        <filter-name>CabecerasSeguridad</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+    <filter-mapping>
+        <filter-name>Sesion</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
 
     <welcome-file-list>
         <welcome-file>index.jsp</welcome-file>
@@ -34,6 +52,10 @@
     </error-page>
     <error-page>
         <error-code>500</error-code>
+        <location>/WEB-INF/vistas/error.jsp</location>
+    </error-page>
+    <error-page>
+        <error-code>503</error-code>
         <location>/WEB-INF/vistas/error.jsp</location>
     </error-page>
     <error-page>

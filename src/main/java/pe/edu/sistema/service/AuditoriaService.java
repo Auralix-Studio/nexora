@@ -12,13 +12,23 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import pe.edu.sistema.model.RegistroAuditoria;
 import pe.edu.sistema.model.Usuario;
 import pe.edu.sistema.util.ConexionBD;
+import pe.edu.sistema.util.ConfigApp;
+import pe.edu.sistema.util.DatosNoDisponiblesException;
 
 /**
  * Servicio: auditoría de acciones del personal y de los accesos (dbo.auditoria o memoria).
- * Registrar nunca lanza excepciones: si falla la base de datos, guarda el registro en memoria.
+ * Registrar nunca lanza excepciones. Criterio por entorno:
+ * <ul>
+ *   <li>Desarrollo: si falla la base de datos, el registro se guarda en memoria (respaldo).</li>
+ *   <li>Producción: no existe respaldo en memoria; si no se puede guardar en dbo.auditoria, el fallo queda en el
+ *       registro de la aplicación (java.util.logging) y la operación auditada continúa. Listar lanza
+ *       {@link DatosNoDisponiblesException} si la base no responde.</li>
+ * </ul>
  */
 public final class AuditoriaService {
 
@@ -41,6 +51,8 @@ public final class AuditoriaService {
 
     private static final String SQL_REGISTRAR =
             "INSERT INTO dbo.auditoria (username, rol, accion, entidad, detalle, ip) VALUES (?, ?, ?, ?, ?, ?)";
+
+    private static final Logger LOG = Logger.getLogger(AuditoriaService.class.getName());
 
     private static final AuditoriaService INSTANCIA = new AuditoriaService();
 
@@ -73,12 +85,21 @@ public final class AuditoriaService {
             String e = recortar(valorOpcional(entidad, null), MAX_ENTIDAD);
             String d = recortar(valorOpcional(detalle, null), MAX_DETALLE);
             String i = recortar(valorOpcional(ip, null), MAX_IP);
+            if (ConfigApp.esProduccion()) {
+                // Sin respaldo en memoria: si no se puede guardar, se deja constancia en el registro de la aplicación
+                if (!ConexionBD.estaDisponible() || !registrarEnBD(u, r, a, e, d, i)) {
+                    LOG.log(Level.WARNING, "No se pudo guardar el registro de auditoría (usuario {0}, acción {1}, entidad {2}).",
+                            new Object[]{u, a, e});
+                }
+                return;
+            }
             if (ConexionBD.estaDisponible() && registrarEnBD(u, r, a, e, d, i)) {
                 return;
             }
             registrarEnMemoria(u, r, a, e, d, i);
         } catch (RuntimeException ex) {
             // Auditar nunca debe interrumpir la operación que se está auditando
+            LOG.log(Level.WARNING, "Fallo inesperado al registrar la auditoría: {0}", ex.toString());
         }
     }
 
@@ -86,7 +107,8 @@ public final class AuditoriaService {
      * Registros del más reciente al más antiguo. Filtros opcionales (null o vacío = sin filtro):
      * usuario exacto sin distinguir mayúsculas, acción exacta y rango de fechas inclusivo.
      *
-     * @throws IllegalStateException si SQL Server está activo pero la consulta falla (no se mezcla con la memoria)
+     * @throws IllegalStateException si SQL Server está activo pero la consulta falla (no se mezcla con la memoria);
+     *         en producción, {@link DatosNoDisponiblesException} si la base no está configurada o no responde
      */
     public List<RegistroAuditoria> listar(String usuario, String accion, LocalDate desde, LocalDate hasta, int limite) {
         List<RegistroAuditoria> resultado = new ArrayList<>();
@@ -105,7 +127,7 @@ public final class AuditoriaService {
         }
         String u = usuario == null ? "" : usuario.trim();
         String a = accion == null ? "" : accion.trim();
-        if (ConexionBD.estaDisponible()) {
+        if (ConexionBD.usarSql()) {
             List<RegistroAuditoria> deBD = listarDeBD(u, a, desde, hasta, limite);
             if (deBD != null) {
                 return deBD;
@@ -150,7 +172,11 @@ public final class AuditoriaService {
             ps.executeUpdate();
             return true;
         } catch (SQLException ex) {
-            ConexionBD.probarConexion();
+            try {
+                ConexionBD.alFallar(ex);
+            } catch (DatosNoDisponiblesException indisponible) {
+                // Producción: el fallo ya quedó anotado en el registro; auditar nunca lanza
+            }
             return false;
         }
     }
@@ -175,7 +201,7 @@ public final class AuditoriaService {
         }
     }
 
-    /** @return los registros, o null si la consulta falló (se usa entonces la memoria) */
+    /** @return los registros, o null si la consulta falló (en desarrollo se usa entonces la memoria) */
     private List<RegistroAuditoria> listarDeBD(String usuario, String accion, LocalDate desde, LocalDate hasta,
             int limite) {
         StringBuilder sql = new StringBuilder(
@@ -226,7 +252,7 @@ public final class AuditoriaService {
             }
             return lista;
         } catch (SQLException ex) {
-            ConexionBD.probarConexion();
+            ConexionBD.alFallarSinRespaldo(ex);   // producción: lanza; desarrollo: vuelve a probar la conexión
             return null;
         }
     }

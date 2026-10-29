@@ -51,7 +51,12 @@
                 </c:when>
                 <c:otherwise>
                     <div class="recibo__estado ${pago.aprobado ? '' : 'recibo__estado--error'}">
-                        <ui:icono nombre="${pago.aprobado ? 'check' : 'alerta'}" tam="20"/>
+                        <c:choose>
+                            <c:when test="${pago.aprobado}">
+                                <svg class="icono check-animado" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle class="check-animado__aro" cx="12" cy="12" r="9" pathLength="1"/><path class="check-animado__marca" d="m8 12 3 3 5-6" pathLength="1"/></svg>
+                            </c:when>
+                            <c:otherwise><ui:icono nombre="alerta" tam="20"/></c:otherwise>
+                        </c:choose>
                         <strong>${pago.aprobado ? 'Pago aprobado' : 'Pago rechazado'}</strong>
                         <span class="mono"><c:out value="${pago.montoTexto}"/></span>
                     </div>
@@ -73,18 +78,18 @@
                 </dl>
 
                 <%-- Datos de Despacho y Entrega --%>
-                <div class="recibo__seccion-envio" style="margin: 1.25rem 0; padding: 1rem; background: var(--fondo-suave, #f8fafc); border-radius: var(--radio-md, 8px); border: 1px solid var(--borde, #e2e8f0);">
-                    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
-                        <strong style="font-size:0.95rem; display:flex; align-items:center; gap:0.5rem;">
+                <div class="recibo__seccion-envio">
+                    <div class="recibo__envio-cabecera">
+                        <strong class="recibo__envio-titulo">
                             <ui:icono nombre="caja" tam="18"/> Logística y Despacho del Pedido
                         </strong>
                         <c:if test="${not empty pedido.codigoSeguimiento}">
-                            <span class="mono" style="font-size:0.8rem; background: var(--fondo-destacado, #e0f2fe); color: var(--color-primario, #0284c7); padding: 0.2rem 0.6rem; border-radius: 4px; font-weight:600;">
+                            <span class="mono recibo__tracking">
                                 Tracking: <c:out value="${pedido.codigoSeguimiento}"/>
                             </span>
                         </c:if>
                     </div>
-                    <dl class="recibo__datos" style="margin:0;">
+                    <dl class="recibo__datos recibo__datos--plano">
                         <div><dt>Modalidad</dt><dd><c:out value="${pedido.tipoEnvio}"/></dd></div>
                         <div><dt>Estado de entrega</dt><dd><strong><c:out value="${pedido.estado}"/></strong></dd></div>
                         <c:choose>

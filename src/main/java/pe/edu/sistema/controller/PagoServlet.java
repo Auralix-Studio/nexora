@@ -94,9 +94,12 @@ public class PagoServlet extends HttpServlet {
         form.put("distrito", "Miraflores");
         form.put("direccion", "");
         form.put("referencia", "");
+        // Datos del cliente: lo último que escribió en esta sesión y, si no hay, lo guardado en su cuenta
         Object sesDni = req.getSession().getAttribute("clienteDni");
         Object sesTel = req.getSession().getAttribute("clienteTelefono");
-        form.put("telefonoContacto", sesTel instanceof String t ? t : "");
+        String telefono = sesTel instanceof String t && !t.isBlank() ? t : (u.getTelefono() != null ? u.getTelefono() : "");
+        String documento = sesDni instanceof String d && !d.isBlank() ? d : (u.getDni() != null ? u.getDni() : "");
+        form.put("telefonoContacto", telefono);
         form.put("correoComprobante", u.getCorreo() != null ? u.getCorreo() : "");
         form.put("notasPedido", "");
 
@@ -104,9 +107,9 @@ public class PagoServlet extends HttpServlet {
         form.put("metodo", Pago.METODO_TARJETA);
         form.put("titular", titularPorDefecto(u));
         form.put("vencimiento", "");
-        form.put("celular", sesTel instanceof String t ? t : "");
+        form.put("celular", telefono);
         form.put("tipoComprobante", Pago.BOLETA);
-        form.put("documento", sesDni instanceof String d ? d : "");
+        form.put("documento", documento);
         form.put("razonSocial", "");
         mostrarCheckout(req, resp, compra, form, new HashMap<>(), null, emitirToken(req, compra));
     }
@@ -253,14 +256,29 @@ public class PagoServlet extends HttpServlet {
                 errores.put("distrito", "Ingresa el distrito o localidad de destino.");
             }
         }
+        // Longitudes de las columnas de dbo.entrega
+        if (largo(s.getDireccion()) > 200) {
+            errores.put("direccion", "La dirección admite como máximo 200 caracteres.");
+        }
+        if (largo(s.getDistrito()) > 80) {
+            errores.put("distrito", "El distrito admite como máximo 80 caracteres.");
+        }
+        if (largo(s.getReferencia()) > 200) {
+            errores.put("referencia", "La referencia admite como máximo 200 caracteres.");
+        }
+        if (largo(s.getNotasPedido()) > 300) {
+            errores.put("notasPedido", "Las notas admiten como máximo 300 caracteres.");
+        }
         String tel = s.getTelefonoContacto() != null ? s.getTelefonoContacto().replaceAll("\\D", "") : "";
         if (tel.isEmpty()) {
             errores.put("telefonoContacto", "Ingresa un celular de contacto para la entrega.");
-        } else if (!tel.matches("9\\d{8}")) {
+        } else if (!tel.matches("9\\d{8}") || largo(s.getTelefonoContacto()) > 20) {
             errores.put("telefonoContacto", "El celular de contacto debe tener 9 dígitos y empezar con 9.");
         }
         String correo = s.getCorreoComprobante() != null ? s.getCorreoComprobante().trim() : "";
-        if (!correo.isEmpty() && !correo.matches("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")) {
+        if (correo.length() > 100) {
+            errores.put("correoComprobante", "El correo admite como máximo 100 caracteres.");
+        } else if (!correo.isEmpty() && !correo.matches("^[\\w.-]+@[\\w.-]+\\.[a-zA-Z]{2,}$")) {
             errores.put("correoComprobante", "Ingresa un correo electrónico válido para el comprobante y tracking.");
         }
         return errores;
@@ -404,6 +422,10 @@ public class PagoServlet extends HttpServlet {
     /** Nombre completo del cliente, recortado, como titular propuesto. */
     private static String titularPorDefecto(Usuario u) {
         return u.getNombreCompleto() == null ? "" : u.getNombreCompleto().trim();
+    }
+
+    private static int largo(String texto) {
+        return texto == null ? 0 : texto.trim().length();
     }
 
     private static int leerCantidad(String texto) {

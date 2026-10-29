@@ -7,11 +7,22 @@
     "use strict";
 
     // ------------------------------------------------------------ menú lateral (móvil)
-    document.querySelectorAll("[data-abrir-menu]").forEach(function (b) {
-        b.addEventListener("click", function () { document.body.classList.add("menu-abierto"); });
+    var botonesMenu = document.querySelectorAll("[data-abrir-menu]");
+    function alternarMenu(abierto) {
+        document.body.classList.toggle("menu-abierto", abierto);
+        botonesMenu.forEach(function (b) { b.setAttribute("aria-expanded", abierto ? "true" : "false"); });
+    }
+    botonesMenu.forEach(function (b) {
+        b.addEventListener("click", function () { alternarMenu(true); });
     });
     document.querySelectorAll("[data-cerrar-menu]").forEach(function (b) {
-        b.addEventListener("click", function () { document.body.classList.remove("menu-abierto"); });
+        b.addEventListener("click", function () { alternarMenu(false); });
+    });
+    document.addEventListener("keydown", function (e) {
+        if (e.key === "Escape" && document.body.classList.contains("menu-abierto")) {
+            alternarMenu(false);
+            if (botonesMenu[0]) { botonesMenu[0].focus(); }
+        }
     });
 
     // Una imagen fallida no debe dejar un icono roto ni sustituirse por otro modelo.
@@ -22,12 +33,16 @@
     });
 
     // ------------------------------------------------------------ avisos
-    document.querySelectorAll("[data-cerrar-aviso]").forEach(function (b) {
-        b.addEventListener("click", function () { b.closest("[data-aviso]").remove(); });
-    });
-    var aviso = document.querySelector(".aviso--ok");
-    if (aviso) {
-        setTimeout(function () { if (aviso.isConnected) { aviso.remove(); } }, 6000);
+    // Con movimiento.js (que marca <html class="js">) los avisos salen animados y se cierran solos allí.
+    // Este respaldo solo actúa si ese archivo no se cargó.
+    if (!document.documentElement.classList.contains("js")) {
+        document.querySelectorAll("[data-cerrar-aviso]").forEach(function (b) {
+            b.addEventListener("click", function () { b.closest("[data-aviso]").remove(); });
+        });
+        var aviso = document.querySelector(".aviso--ok");
+        if (aviso) {
+            setTimeout(function () { if (aviso.isConnected) { aviso.remove(); } }, 6000);
+        }
     }
 
     // ------------------------------------------------------------ modal de confirmación
@@ -251,12 +266,12 @@
             if (e.defaultPrevented) { return; }
             // Después de que el navegador arme los datos: un botón deshabilitado no viajaría en el envío
             setTimeout(function () {
-                botones().forEach(function (b) { b.disabled = true; });
+                botones().forEach(function (b) { b.disabled = true; b.setAttribute("aria-busy", "true"); });
             }, 0);
         });
         // Al volver con "atrás" desde la caché del navegador, los botones vuelven a estar disponibles
         window.addEventListener("pageshow", function (e) {
-            if (e.persisted) { botones().forEach(function (b) { b.disabled = false; }); }
+            if (e.persisted) { botones().forEach(function (b) { b.disabled = false; b.removeAttribute("aria-busy"); }); }
         });
     });
 
@@ -578,6 +593,18 @@
             mostrarError(formLogin, "usuario", u ? "" : "Ingrese su usuario");
             mostrarError(formLogin, "clave", c ? "" : "Ingrese su contraseña");
             if (!u || !c) { e.preventDefault(); }
+        });
+
+        // Cuentas de demostración (solo existen en la vista si el servidor está en modo demo)
+        document.querySelectorAll("[data-demo-usuario]").forEach(function (b) {
+            b.addEventListener("click", function () {
+                formLogin.elements.usuario.value = b.getAttribute("data-demo-usuario");
+                formLogin.elements.clave.value = b.getAttribute("data-demo-clave");
+                mostrarError(formLogin, "usuario", "");
+                mostrarError(formLogin, "clave", "");
+                var enviar = formLogin.querySelector('button[type="submit"]');
+                if (enviar) { enviar.focus(); }
+            });
         });
     }
 

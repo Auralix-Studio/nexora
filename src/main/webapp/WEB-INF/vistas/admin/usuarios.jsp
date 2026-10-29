@@ -76,7 +76,7 @@
     </div>
 </div>
 <div class="tabla-contenedor">
-    <table class="tabla">
+    <table class="tabla tabla--usuarios">
         <thead>
         <tr>
             <th>Usuario</th>

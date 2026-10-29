@@ -1,0 +1,31 @@
+# Lo que NO se envía al demonio de Docker (src/ y sql/ sí se envían).
+.git
+.gitignore
+.gitattributes
+.github
+.claude
+.idea
+.vscode
+nbproject
+nb-configuration.xml
+
+# Compilación local, entregables académicos y documentación
+target
+entregables
+docs
+*.md
+
+# Secretos y archivos locales
+.env
+.env.*
+*.log
+*.tmp
+
+# Infraestructura: solo la configuración de Tomcat entra en la imagen
+infra/*
+!infra/tomcat
+
+# Archivos del propio empaquetado
+Dockerfile
+.dockerignore
+docker-compose.yml

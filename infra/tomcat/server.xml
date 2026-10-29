@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Configuración de Tomcat 11 para NEXORA (se copia a conf/server.xml en el Dockerfile).
+  Se ejecuta detrás del ingress de Azure Container Apps, que termina el TLS y reenvía por HTTP al puerto 8080.
+
+  Decisiones:
+  - Puerto de apagado deshabilitado (-1): el contenedor se detiene con una señal, no con un comando por socket.
+  - Sin conector AJP, sin aplicaciones de ejemplo, sin autodeploy ni recursos JNDI globales.
+  - RemoteIpValve confía en X-Forwarded-For y X-Forwarded-Proto solo si vienen de una red privada
+    (isSecure() pasa a ser true detrás del ingress, así que las cookies de sesión salen con Secure).
+  - ErrorReportValve no muestra trazas ni la versión de Tomcat.
+  - El access log sale por la salida estándar para que Container Apps lo envíe a Log Analytics.
+-->
+<Server port="-1" shutdown="SHUTDOWN">
+
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" logArgs="false"/>
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener"/>
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener"/>
+
+  <Service name="Catalina">
+
+    <!-- HTTP sin TLS: el TLS lo termina el ingress. La compresión reduce el tráfico de HTML, CSS, JS, JSON y SVG. -->
+    <Connector port="8080" protocol="HTTP/1.1"
+               connectionTimeout="20000"
+               maxHttpHeaderSize="16384"
+               compression="on"
+               compressionMinSize="1024"
+               compressibleMimeType="text/html,text/css,text/javascript,application/javascript,application/json,image/svg+xml"/>
+
+    <Engine name="Catalina" defaultHost="localhost">
+
+      <!-- deployXML queda en su valor por defecto (true): la aplicación trae META-INF/context.xml con la
+           configuración de cookies (SameSite) y Tomcat debe leerlo. -->
+      <Host name="localhost" appBase="webapps"
+            unpackWARs="true" autoDeploy="false" deployOnStartup="true">
+
+        <!-- Cubre 10.x, 172.16-31.x, 192.168.x, 169.254.x, 127.x, la red 100.64.0.0/10 (CGNAT, que algunos
+             entornos de contenedores usan para sus proxies internos) y el bucle local IPv6. -->
+        <Valve className="org.apache.catalina.valves.RemoteIpValve"
+               remoteIpHeader="x-forwarded-for"
+               protocolHeader="x-forwarded-proto"
+               internalProxies="10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|169\.254\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}|100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\.\d{1,3}\.\d{1,3}|127\.\d{1,3}\.\d{1,3}\.\d{1,3}|0:0:0:0:0:0:0:1|::1"/>
+
+        <Valve className="org.apache.catalina.valves.ErrorReportValve"
+               showReport="false" showServerInfo="false"/>
+
+        <!-- Formato combinado a la salida estándar (/dev/stdout), sin rotación ni búfer. -->
+        <Valve className="org.apache.catalina.valves.AccessLogValve"
+               directory="/dev" prefix="stdout" suffix="" rotatable="false" buffered="false"
+               pattern="combined"/>
+
+      </Host>
+    </Engine>
+  </Service>
+</Server>

@@ -9,24 +9,40 @@
 <%@ taglib prefix="c" uri="jakarta.tags.core" %>
 <%@ taglib prefix="fn" uri="jakarta.tags.functions" %>
 <%@ taglib prefix="ui" tagdir="/WEB-INF/tags" %>
+<c:set var="ctxRecursos" value="${pageContext.request.contextPath}"/>
+<c:set var="verRecursos" value="${empty appVersion ? 'dev' : appVersion}"/>
+<c:set var="descripcionPagina" value="${empty descripcion ? 'NEXORA: tienda en línea de equipamiento tecnológico. Laptops, monitores y accesorios con pago seguro por tarjeta o Yape y comprobante electrónico.' : descripcion}"/>
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title><c:out value="${titulo}"/> · NEXORA</title>
+    <meta name="description" content="<c:out value='${descripcionPagina}'/>">
+    <meta name="theme-color" content="#14211B">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="NEXORA">
+    <meta property="og:locale" content="es_PE">
+    <meta property="og:title" content="<c:out value='${titulo}'/> · NEXORA">
+    <meta property="og:description" content="<c:out value='${descripcionPagina}'/>">
+    <link rel="icon" type="image/svg+xml" href="${ctxRecursos}/img/favicon.svg">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600&family=IBM+Plex+Mono:wght@400;500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="${pageContext.request.contextPath}/css/estilos.css">
+    <link rel="stylesheet" href="${ctxRecursos}/css/estilos.css?v=${fn:escapeXml(verRecursos)}">
+    <script src="${ctxRecursos}/js/movimiento.js?v=${fn:escapeXml(verRecursos)}"></script>
 </head>
 <body>
+<a class="saltar" href="#contenido">Saltar al contenido</a>
 <div class="app">
     <jsp:include page="/includes/menu.jsp"/>
     <div class="principal">
+        <c:if test="${modoDemo}">
+            <div class="cinta-demo" role="note">Entorno de demostración · pagos simulados, sin cargos reales</div>
+        </c:if>
         <header class="barra-superior">
             <div class="barra-superior__titulos">
-                <button type="button" class="boton-menu" data-abrir-menu aria-label="Abrir menú">
+                <button type="button" class="boton-menu" data-abrir-menu aria-label="Abrir menú" aria-controls="menu-lateral" aria-expanded="false">
                     <ui:icono nombre="menu"/>
                 </button>
                 <div>
@@ -60,7 +76,7 @@
         </header>
 
         <c:if test="${not empty sessionScope.flashMensaje}">
-            <div class="aviso aviso--${sessionScope.flashTipo eq 'ok' ? 'ok' : 'error'}" role="status" data-aviso>
+            <div class="aviso aviso--${sessionScope.flashTipo eq 'ok' ? 'ok' : 'error'}" role="status" aria-live="${sessionScope.flashTipo eq 'ok' ? 'polite' : 'assertive'}" aria-atomic="true" data-aviso>
                 <ui:icono nombre="${sessionScope.flashTipo eq 'ok' ? 'check' : 'alerta'}"/>
                 <span><c:out value="${sessionScope.flashMensaje}"/></span>
                 <button type="button" class="aviso__cerrar" data-cerrar-aviso aria-label="Cerrar">
@@ -71,4 +87,4 @@
             <c:remove var="flashTipo" scope="session"/>
         </c:if>
 
-        <main class="contenido">
+        <main class="contenido" id="contenido" tabindex="-1">

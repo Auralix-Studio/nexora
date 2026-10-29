@@ -1,2 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<Context path="/Semana04"/>
+<Context path="/Semana04">
+    <!-- Cookies de sesión con SameSite=Lax (la CSRF de la aplicación ya valida un token en cada POST) -->
+    <CookieProcessor className="org.apache.tomcat.util.http.Rfc6265CookieProcessor" sameSiteCookies="lax"/>
+</Context>

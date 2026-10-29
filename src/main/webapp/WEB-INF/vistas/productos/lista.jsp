@@ -123,7 +123,7 @@
                 <strong class="resumen-producto__nombre"><c:out value="${productoComprar.nombre}"/></strong>
                 <span class="mono suave pequeno"><c:out value="${productoComprar.categoria}"/> · Precio unitario: <c:out value="${productoComprar.precioTexto}"/></span>
             </div>
-            <form action="${pageContext.request.contextPath}/pago" method="get" style="display: grid; gap: 14px;">
+            <form action="${pageContext.request.contextPath}/pago" method="get" class="formulario-compra">
                 <input type="hidden" name="codigo" value="${fn:escapeXml(productoComprar.codigo)}">
                 <div class="campo">
                     <label for="cantidad">Cantidad (máx. ${productoComprar.stock} unidades)</label>
