@@ -1,0 +1,22 @@
+# Compilación de Maven
+target/
+
+# IDE
+nbproject/private/
+.idea/
+*.iml
+.vscode/
+
+# Configuración local de Claude Code (los agentes y skills del proyecto sí se versionan)
+.claude/settings.local.json
+
+# Registros y temporales
+*.log
+*.tmp
+~$*
+
+# Secretos: nunca se versionan (ver docs/DESPLIEGUE.md)
+.env
+.env.*
+*.publishsettings
+infra/*.parameters.local.json

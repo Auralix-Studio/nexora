@@ -1,0 +1,74 @@
+[
+  {
+    "code": "P001",
+    "url": "https://m.media-amazon.com/images/I/71EBoR9YD1L._AC_SL1500_.jpg",
+    "source": "https://www.ubuy.com.gh/productuk/FH3EU1MS4-lenovo-ideapad-3-15-6-inch-fhd",
+    "variant": true
+  },
+  {
+    "code": "P002",
+    "url": "https://www.daycomp.eu/50989-large_default/logitech-mouse-m170-wireless-optical-1000dpi-usb-receiver-gray.jpg",
+    "source": "https://www.daycomp.eu/en/wireless/25643-logitech-mouse-m170-wireless-optical-1000dpi-usb-receiver-gray-5099206062887.html",
+    "variant": false
+  },
+  {
+    "code": "P003",
+    "url": "https://vivadigital.com.co/img/products/Teclado_Mecnico_KUMARA_K552_Redragon_Black/Teclado_Mecnico_KUMARA_K552_Redragon_Black16504023311.jpg",
+    "source": "https://vivadigital.com.co",
+    "variant": false
+  },
+  {
+    "code": "P004",
+    "url": "https://www.lg.com/content/dam/channel/wcms/pe/monitors/gaming/24u411a-b/gallery/DZ-01.jpg/jcr%3Acontent/renditions/thum-1600x1062.jpeg",
+    "source": "https://www.lg.com/pe/monitores/fhd-y-qhd/24u411a-b/?srsltid=AfmBOoo7QUWqSMlkrloT6WxEWXGPW-hm16z7lB0XI2kczklGsfOgigl_",
+    "variant": true
+  },
+  {
+    "code": "P006",
+    "url": "https://www.fastrax.com.py/documentos/33268-2.png",
+    "source": "https://www.fastrax.com.py",
+    "variant": false
+  },
+  {
+    "code": "P007",
+    "url": "https://www.sandisk.com/content/dam/store/en-us/assets/products/usb-flash-drives/ultra-usb-3-0/gallery/ultra-usb-3-0-front.png",
+    "source": "https://www.sandisk.com/products/usb-flash-drives/sandisk-ultra-usb-3-0",
+    "variant": false
+  },
+  {
+    "code": "P008",
+    "url": "https://uk.hyperx.com/cdn/shop/files/hyperx_cloud_ii_red_1_main_1570x.jpg?v=1770037214",
+    "source": "Best Gaming Headsets for Gamers | Wireless & Wired Headphones",
+    "variant": false
+  },
+  {
+    "code": "P009",
+    "url": "https://static.tp-link.com/ArcherC6-1_1540951705417i.jpg",
+    "source": "https://www.tp-link.com/jp/press/news/18132/",
+    "variant": false
+  },
+  {
+    "code": "P010",
+    "url": "https://techtoschool.com/cdn/shop/products/15Z-EF2000_1728x.jpg?v=1680276397",
+    "source": "https://techtoschool.com/products/hp-15z-ef2000-15-6-windows-notebook",
+    "variant": true
+  },
+  {
+    "code": "P011",
+    "url": "https://images.visunextgroup.com/images/D/original/2/1000011950/nl/logitech/Logitech-C920-HD-PRO-webcam.jpg",
+    "source": "https://www.visunext.nl/p/logitech-c920-webcam-1000011950/",
+    "variant": false
+  },
+  {
+    "code": "P012",
+    "url": "https://www.palser.com/imgs/productos/productos35_21752.jpg",
+    "source": "https://www.palser.com/catalogo/redes-wifi/switches/switch-tp-link-8-ports-gigabit-tl-sg1008-nw223tpl16/",
+    "variant": true
+  },
+  {
+    "code": "P005",
+    "url": "https://mediaserver.goepson.com/adaptivemedia/rendition?id=e5000728dfb2a9d61375803b4256efee5c4411d9&vid=e5000728dfb2a9d61375803b4256efee5c4411d9&prid=original&clid=SAPDAM&prclid=productpictures&assetDescr=L3250_headon-output-scan_690x460",
+    "source": "https://epson.com.pe/Soporte/Impresoras/Impresoras-multifuncionales/Epson-L/Epson-L3250/s/SPT_C11CJ67301",
+    "variant": false
+  }
+]
