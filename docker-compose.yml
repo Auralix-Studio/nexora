@@ -51,8 +51,6 @@ services:
       context: .
       args:
         NEXORA_VERSION: local
-      # Solo en local por http://localhost: en Azure la petición llega por HTTPS y la cookie es Secure
-      NEXORA_COOKIE_SEGURA: "false"
         OMITIR_PRUEBAS: ${OMITIR_PRUEBAS:-false}
     image: nexora:local
     depends_on:
@@ -62,6 +60,8 @@ services:
       NEXORA_ENTORNO: produccion
       NEXORA_DEMO: "true"
       NEXORA_VERSION: local
+      # Solo en local por http://localhost: en Azure la petición llega por HTTPS y la cookie es Secure
+      NEXORA_COOKIE_SEGURA: "false"
       DB_URL: jdbc:sqlserver://sql:1433;databaseName=BD_NEXORA;encrypt=true;trustServerCertificate=true;loginTimeout=30;
       DB_USER: sa
       DB_PASSWORD: ${MSSQL_SA_PASSWORD:?Copia .env.example a .env y define MSSQL_SA_PASSWORD}

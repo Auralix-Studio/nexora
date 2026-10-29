@@ -8,12 +8,13 @@
 #   -p  prefijo de los nombres       (defecto: nexora)
 #   -m  réplicas mínimas 0 o 1       (defecto: la actual del Container App o 0; también MIN_REPLICAS)
 #   -v  versión que informa /salud   (defecto: la etiqueta de la imagen)
-# Variables opcionales: GHCR_USUARIO y GHCR_TOKEN (token con read:packages) para descargar de un GHCR privado;
+# Variables opcionales: GHCR_USUARIO y GHCR_TOKEN (token con read:packages) para descargar de un GHCR privado
+# (con una imagen de ghcr.io y sin credenciales el script se detiene; GHCR_PUBLICO=true si el paquete es público);
 # USAR_OFERTA_GRATUITA=false si la suscripción ya usó la oferta gratuita de Azure SQL en otra base;
 # MODO_DEMO=false para quitar la cinta y las cuentas demo (NEXORA_DEMO).
 #
-# Es idempotente: las claves se generan una sola vez y se guardan en infra/.secretos.local (ignorado por Git);
-# al repetir el script se reutilizan. Antes de crear nada muestra el what-if y pide confirmación.
+# Es idempotente: las claves y el token de /salud?bd=1 (TOKEN_SALUD) se generan una sola vez y se guardan en
+# infra/.secretos.local (ignorado por Git); al repetir el script se reutilizan. Antes de crear nada muestra el what-if y pide confirmación.
 set -euo pipefail
 
 RAIZ="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -46,7 +47,7 @@ while getopts ":g:l:i:p:m:v:h" opcion; do
     p) PREFIJO_ARG="$OPTARG" ;;
     m) MIN_ARG="$OPTARG" ;;
     v) VERSION_ARG="$OPTARG" ;;
-    h) sed -n '2,16p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    h) sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
     \?) fallar "Opción desconocida: -$OPTARG (usa -h para ver la ayuda)" ;;
     :) fallar "Falta el valor de -$OPTARG" ;;
   esac
@@ -61,7 +62,7 @@ info "Suscripción activa: $(azv account show --query name)"
 
 # ---------------------------------------------------------------- Valores guardados y claves
 OFERTA_ENV="${USAR_OFERTA_GRATUITA:-}"; DEMO_ENV="${MODO_DEMO:-}"
-GRUPO=""; UBICACION=""; PREFIJO=""; SQL_ADMIN_LOGIN=""; SQL_ADMIN_CLAVE=""; APP_DB_CLAVE=""
+GRUPO=""; UBICACION=""; PREFIJO=""; SQL_ADMIN_LOGIN=""; SQL_ADMIN_CLAVE=""; APP_DB_CLAVE=""; TOKEN_SALUD=""
 SQL_SERVIDOR=""; SQL_FQDN=""; APP_NOMBRE=""; APP_URL=""; USAR_OFERTA_GRATUITA=""; MODO_DEMO=""
 if [[ -f "$ARCHIVO_SECRETOS" ]]; then
   # shellcheck disable=SC1090
@@ -80,6 +81,7 @@ MODO_DEMO="${DEMO_ENV:-${MODO_DEMO:-true}}"
 SQL_ADMIN_LOGIN="${SQL_ADMIN_LOGIN:-nexoraadmin}"
 [[ -n "$SQL_ADMIN_CLAVE" ]] || SQL_ADMIN_CLAVE="$(generar_clave 12)"
 [[ -n "$APP_DB_CLAVE" ]] || APP_DB_CLAVE="$(generar_clave 12)"
+[[ -n "$TOKEN_SALUD" ]] || TOKEN_SALUD="$(openssl rand -hex 16)"
 APP="ca-${PREFIJO}"
 
 guardar_secretos() {
@@ -92,6 +94,7 @@ PREFIJO=$PREFIJO
 SQL_ADMIN_LOGIN=$SQL_ADMIN_LOGIN
 SQL_ADMIN_CLAVE=$SQL_ADMIN_CLAVE
 APP_DB_CLAVE=$APP_DB_CLAVE
+TOKEN_SALUD=$TOKEN_SALUD
 SQL_SERVIDOR=$SQL_SERVIDOR
 SQL_FQDN=$SQL_FQDN
 APP_NOMBRE=$APP_NOMBRE
@@ -136,10 +139,10 @@ if az containerapp show -g "$GRUPO" -n "$APP" >/dev/null 2>&1; then
   MIN_ACTUAL="$(azv containerapp show -g "$GRUPO" -n "$APP" --query "properties.template.scale.minReplicas")"
   # Sin token nuevo, se reutilizan las credenciales del registro ya configuradas (si las hay).
   if [[ -z "${GHCR_TOKEN:-}" ]]; then
-    USUARIO_REG="$(azv containerapp show -g "$GRUPO" -n "$APP" --query "properties.configuration.registries[0].username")"
+    USUARIO_REG="$(azv containerapp show -g "$GRUPO" -n "$APP" --query "properties.configuration.registries[0].username" || true)"
     if [[ -n "$USUARIO_REG" ]]; then
       GHCR_USUARIO="$USUARIO_REG"
-      GHCR_TOKEN="$(azv containerapp secret show -g "$GRUPO" -n "$APP" --secret-name registry-password --query value)"
+      GHCR_TOKEN="$(azv containerapp secret show -g "$GRUPO" -n "$APP" --secret-name registry-password --query value || true)"
       if [[ -z "$GHCR_TOKEN" ]]; then
         info "AVISO: no pude leer el secreto del registro; pásalo con GHCR_USUARIO y GHCR_TOKEN."
       fi
@@ -162,8 +165,9 @@ REGISTRO_SERVIDOR=""; REGISTRO_USUARIO=""; REGISTRO_CLAVE=""
 if [[ -n "${GHCR_TOKEN:-}" ]]; then
   [[ -n "${GHCR_USUARIO:-}" ]] || fallar "Si defines GHCR_TOKEN, define también GHCR_USUARIO (tu usuario de GitHub)."
   REGISTRO_SERVIDOR="ghcr.io"; REGISTRO_USUARIO="$GHCR_USUARIO"; REGISTRO_CLAVE="$GHCR_TOKEN"
-elif [[ "$IMAGEN" == ghcr.io/* ]]; then
-  info "AVISO: la imagen es de GHCR y no hay credenciales. Si el paquete es privado, define GHCR_USUARIO y GHCR_TOKEN."
+elif [[ "$IMAGEN" == ghcr.io/* && "${GHCR_PUBLICO:-}" != "true" ]]; then
+  # Seguir sin credenciales quitaría el registro del Container App y la réplica no podría descargar la imagen.
+  fallar "La imagen es de GHCR y no hay credenciales del registro (ni pude leerlas del Container App). Define GHCR_USUARIO y GHCR_TOKEN (token con read:packages), o GHCR_PUBLICO=true si el paquete es público."
 fi
 
 # ---------------------------------------------------------------- Archivo de parámetros (con claves; se borra al salir)
@@ -182,6 +186,7 @@ fi
     "sqlAdminLogin": { "value": "$(escapar_json "$SQL_ADMIN_LOGIN")" },
     "sqlAdminClave": { "value": "$(escapar_json "$SQL_ADMIN_CLAVE")" },
     "appDbClave": { "value": "$(escapar_json "$APP_DB_CLAVE")" },
+    "tokenSalud": { "value": "$(escapar_json "$TOKEN_SALUD")" },
     "minReplicas": { "value": $MINIMO },
     "nexoraVersion": { "value": "$(escapar_json "$VERSION")" },
     "modoDemo": { "value": $MODO_DEMO },
@@ -229,6 +234,7 @@ info "  URL de la tienda  : $APP_URL"
 info "  Servidor SQL      : $SQL_FQDN (base BD_NEXORA)"
 info "  Container App     : $APP_NOMBRE  |  Grupo: $GRUPO"
 info "  Claves guardadas en $ARCHIVO_SECRETOS (ignorado por Git; no se imprimen)."
+info "  Token de /salud?bd=1  : TOKEN_SALUD en ese archivo (se envía en la cabecera X-Salud-Token)."
 info ""
 if [[ "$IMAGEN" == "$IMAGEN_INICIAL" ]]; then
   info "Siguientes pasos:"

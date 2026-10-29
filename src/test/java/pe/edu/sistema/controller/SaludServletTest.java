@@ -62,13 +62,15 @@ class SaludServletTest {
     }
 
     @Test
-    @DisplayName("GET /salud?bd=1 responde 503 si la base no responde (producción sin configurar)")
+    @DisplayName("GET /salud?bd=1 con token válido responde 503 si la base no responde (producción sin configurar)")
     void saludConBaseSinConfigurar() throws Exception {
         assumeTrue(System.getenv("DB_USER") == null && System.getenv("DB_PASSWORD") == null,
                 "el entorno de la prueba define DB_USER o DB_PASSWORD");
         System.setProperty(ConfigApp.ENTORNO, "produccion");
+        System.setProperty(SaludServlet.VARIABLE_TOKEN, "token-de-prueba-123");
         Peticion req = Peticion.get("/salud");
         req.parametros.put("bd", "1");
+        req.cabeceras.put(SaludServlet.CABECERA_TOKEN, "token-de-prueba-123");
         Respuesta resp = new Respuesta();
 
         new SaludServlet().doGet(req.proxy, resp.proxy);
@@ -76,6 +78,91 @@ class SaludServletTest {
         assertEquals(503, resp.estado);
         assertEquals("{\"estado\":\"error\",\"bd\":\"no disponible\"}", resp.texto());
         assertTrue(req.llamadas.isEmpty());
+    }
+
+    /** Producción sin base configurada: si el servlet la consultara respondería 503 (y nunca crea un pool). */
+    private static void produccionSinBase() {
+        assumeTrue(System.getenv("DB_USER") == null && System.getenv("DB_PASSWORD") == null,
+                "el entorno de la prueba define DB_USER o DB_PASSWORD");
+        System.setProperty(ConfigApp.ENTORNO, "produccion");
+    }
+
+    private static Respuesta consultarBd(String tokenEnviado) throws Exception {
+        Peticion req = Peticion.get("/salud");
+        req.parametros.put("bd", "1");
+        if (tokenEnviado != null) {
+            req.cabeceras.put(SaludServlet.CABECERA_TOKEN, tokenEnviado);
+        }
+        Respuesta resp = new Respuesta();
+        new SaludServlet().doGet(req.proxy, resp.proxy);
+        assertTrue(req.llamadas.isEmpty(), "no debe crear ni pedir la sesión");
+        return resp;
+    }
+
+    @Test
+    @DisplayName("En producción /salud?bd=1 sin NEXORA_TOKEN_SALUD definida responde 403 aunque llegue una cabecera")
+    void bdSinVariableDeTokenEs403() throws Exception {
+        assumeTrue(System.getenv(SaludServlet.VARIABLE_TOKEN) == null, "el entorno define NEXORA_TOKEN_SALUD");
+        produccionSinBase();
+
+        for (String enviado : new String[]{null, "", "cualquiera"}) {
+            Respuesta resp = consultarBd(enviado);
+            assertEquals(403, resp.estado, "token enviado: " + enviado);
+            assertEquals("{\"estado\":\"ok\",\"bd\":\"no autorizado\"}", resp.texto());
+            assertEquals("no-store", resp.cabecera("Cache-Control"));
+        }
+    }
+
+    @Test
+    @DisplayName("En producción /salud?bd=1 sin cabecera o con token distinto responde 403 sin tocar la base")
+    void bdConTokenIncorrectoEs403() throws Exception {
+        produccionSinBase();
+        System.setProperty(SaludServlet.VARIABLE_TOKEN, "token-de-prueba-123");
+
+        for (String enviado : new String[]{null, "", "token-de-prueba-124", "token-de-prueba-12", "TOKEN-DE-PRUEBA-123"}) {
+            Respuesta resp = consultarBd(enviado);
+            assertEquals(403, resp.estado, "token enviado: " + enviado);
+            assertEquals("{\"estado\":\"ok\",\"bd\":\"no autorizado\"}", resp.texto());
+        }
+    }
+
+    @Test
+    @DisplayName("En producción /salud?bd=1 con el token correcto consulta la base (503 si la base no responde)")
+    void bdConTokenCorrectoConsultaLaBase() throws Exception {
+        produccionSinBase();
+        System.setProperty(SaludServlet.VARIABLE_TOKEN, "token-de-prueba-123");
+
+        Respuesta resp = consultarBd("token-de-prueba-123");
+
+        assertEquals(503, resp.estado);
+        assertEquals("{\"estado\":\"error\",\"bd\":\"no disponible\"}", resp.texto());
+    }
+
+    @Test
+    @DisplayName("En producción /salud sin parámetros no pide token (lo usan las sondas)")
+    void saludBasicoNoPideToken() throws Exception {
+        produccionSinBase();
+        System.setProperty(SaludServlet.VARIABLE_TOKEN, "token-de-prueba-123");
+        Respuesta resp = new Respuesta();
+
+        new SaludServlet().doGet(Peticion.get("/salud").proxy, resp.proxy);
+
+        assertEquals(200, resp.estado);
+        assertFalse(resp.texto().contains("\"bd\""));
+    }
+
+    @Test
+    @DisplayName("tokenValido compara con la variable configurada y rechaza nulos")
+    void tokenValidoCompara() {
+        assumeTrue(System.getenv(SaludServlet.VARIABLE_TOKEN) == null, "el entorno define NEXORA_TOKEN_SALUD");
+        assertFalse(SaludServlet.tokenValido("x"), "sin variable nunca es válido");
+        assertFalse(SaludServlet.tokenValido(null));
+        System.setProperty(SaludServlet.VARIABLE_TOKEN, "abc");
+        assertTrue(SaludServlet.tokenValido("abc"));
+        assertTrue(SaludServlet.tokenValido(" abc "), "se ignoran espacios en los extremos");
+        assertFalse(SaludServlet.tokenValido("abd"));
+        assertFalse(SaludServlet.tokenValido(null));
+        assertFalse(SaludServlet.tokenValido(""));
     }
 
     @Test

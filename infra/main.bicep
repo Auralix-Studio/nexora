@@ -2,7 +2,7 @@
 // NEXORA - Infraestructura en Azure (Bicep)
 //
 // Crea, dentro de un grupo de recursos existente:
-//   1. Log Analytics (registros de la aplicación, retención de 30 días)
+//   1. Log Analytics (registros de la aplicación, retención de 30 días y tope diario de 0,5 GB)
 //   2. Entorno de Azure Container Apps (plan Consumo) conectado a Log Analytics
 //   3. Servidor Azure SQL + base BD_NEXORA serverless con la OFERTA GRATUITA
 //   4. Container App con la tienda (Tomcat 11): ingreso externo HTTPS, sondas a /salud, 0..1 réplicas
@@ -10,7 +10,7 @@
 // Despliegue recomendado: bash infra/crear-infra.sh (genera las claves, muestra el what-if y pide confirmación).
 // Despliegue manual:
 //   az deployment group create -g rg-nexora -f infra/main.bicep \
-//     -p sqlAdminLogin=nexoraadmin sqlAdminClave=<clave> appDbClave=<clave>
+//     -p sqlAdminLogin=nexoraadmin sqlAdminClave=<clave> appDbClave=<clave> tokenSalud=<token>
 //
 // Versiones de API (todas estables/GA, sin "-preview"):
 //   - Microsoft.OperationalInsights/workspaces@2022-10-01  (versión estable ampliamente usada; admite listKeys())
@@ -61,6 +61,10 @@ param sqlAdminClave string
 @secure()
 param appDbClave string
 
+@description('Token que autoriza GET /salud?bd=1 (cabecera X-Salud-Token) en producción; llega a la aplicación como NEXORA_TOKEN_SALUD. Vacío: la aplicación no lo define y /salud?bd=1 responde siempre 403 (las sondas de /salud no lo necesitan).')
+@secure()
+param tokenSalud string = ''
+
 @description('Réplicas mínimas: 0 permite escalar a cero (más barato, con arranque en frío); 1 mantiene la aplicación siempre encendida. El máximo es siempre 1 porque las sesiones viven en memoria.')
 @minValue(0)
 @maxValue(1)
@@ -94,7 +98,10 @@ var puertoObjetivo = esImagenInicial ? 80 : 8080
 // DB_URL contra Azure SQL: TLS obligatorio con validación del certificado del servidor.
 var urlBd = 'jdbc:sqlserver://${servidorSql.properties.fullyQualifiedDomainName}:1433;database=${nombreBd};encrypt=true;trustServerCertificate=false;hostNameInCertificate=*.database.windows.net;loginTimeout=30;'
 
-// Secretos del Container App: la clave de la BD siempre; la del registro solo si hay registro.
+// El token de salud solo se publica (secreto + variable) si llega un valor: un secreto vacío no es válido.
+var usaTokenSalud = !empty(tokenSalud)
+
+// Secretos del Container App: la clave de la BD siempre; la del registro solo si hay registro; el token si existe.
 var secretosBase = [
   {
     name: 'db-password'
@@ -105,6 +112,18 @@ var secretosRegistro = usaRegistro ? [
   {
     name: 'registry-password'
     value: registroClave
+  }
+] : []
+var secretosSalud = usaTokenSalud ? [
+  {
+    name: 'salud-token'
+    value: tokenSalud
+  }
+] : []
+var variablesSalud = usaTokenSalud ? [
+  {
+    name: 'NEXORA_TOKEN_SALUD'
+    secretRef: 'salud-token'
   }
 ] : []
 
@@ -160,6 +179,11 @@ resource logs 'Microsoft.OperationalInsights/workspaces@2022-10-01' = {
       name: 'PerGB2018'
     }
     retentionInDays: 30
+    // Tope diario de ingesta: un pico de registros no consume el crédito. Al alcanzarlo se dejan de guardar
+    // registros hasta el día siguiente (la aplicación sigue funcionando).
+    workspaceCapping: {
+      dailyQuotaGb: json('0.5')
+    }
   }
 }
 
@@ -257,7 +281,7 @@ resource appNexora 'Microsoft.App/containerApps@2024-03-01' = {
           passwordSecretRef: 'registry-password'
         }
       ] : []
-      secrets: concat(secretosBase, secretosRegistro)
+      secrets: concat(secretosBase, secretosRegistro, secretosSalud)
     }
     template: {
       containers: [
@@ -268,7 +292,7 @@ resource appNexora 'Microsoft.App/containerApps@2024-03-01' = {
             cpu: json('0.5')
             memory: '1Gi'
           }
-          env: [
+          env: concat([
             {
               name: 'NEXORA_ENTORNO'
               value: 'produccion'
@@ -293,7 +317,7 @@ resource appNexora 'Microsoft.App/containerApps@2024-03-01' = {
               name: 'DB_PASSWORD'
               secretRef: 'db-password'
             }
-          ]
+          ], variablesSalud)
           probes: esImagenInicial ? [] : sondas
         }
       ]

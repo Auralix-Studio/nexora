@@ -18,7 +18,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.IntSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import pe.edu.sistema.model.Categoria;
@@ -306,7 +308,11 @@ public class ProductoService {
 
     // ---------------------------------------------------------------- consultas
 
-    public synchronized List<Producto> listar() {
+    /**
+     * Lista los productos. La consulta SQL no toma el candado del servicio (una base lenta o pausada no debe
+     * encolar a las demás peticiones); solo el respaldo en memoria se copia dentro del candado.
+     */
+    public List<Producto> listar() {
         if (ConexionBD.usarSql()) {
             try (Connection cn = ConexionBD.obtenerConexion();
                  PreparedStatement ps = cn.prepareStatement(SQL_LISTAR);
@@ -327,10 +333,12 @@ public class ProductoService {
                 ConexionBD.alFallarSinRespaldo(ex);   // producción: lanza; desarrollo: vuelve a probar la conexión
             }
         }
-        return new ArrayList<>(productos);
+        synchronized (this) {
+            return new ArrayList<>(productos);
+        }
     }
 
-    public synchronized int contar() {
+    public int contar() {
         return listar().size();
     }
 
@@ -338,30 +346,56 @@ public class ProductoService {
     private volatile long conteoVenceEn;
     /** Cambia con cada invalidación: un conteo que empezó antes de un registro o eliminación no se guarda. */
     private final AtomicInteger generacionConteo = new AtomicInteger();
+    /** true mientras una petición consulta el conteo: las demás usan el último valor sin esperar. */
+    private final AtomicBoolean conteoEnVuelo = new AtomicBoolean();
+    /** Consulta del conteo; solo las pruebas la reemplazan (para simular una base lenta). */
+    volatile IntSupplier consultaConteo = this::contar;
 
     /**
      * Cantidad de productos para la cabecera de todas las páginas: se conserva 30 segundos para no consultar la
-     * base en cada petición, y se invalida al registrar o eliminar un producto. Nunca lanza: si la consulta falla
-     * devuelve el último valor conocido (0 al inicio) y vuelve a intentarlo en 5 segundos, de modo que una base
-     * caída no retrasa ni rompe cada página.
+     * base en cada petición, y se invalida al registrar o eliminar un producto. De un solo vuelo: al vencer, una
+     * única petición consulta y las demás reciben el último valor conocido al instante, de modo que una base
+     * pausada no cuelga cada página. Nunca lanza: si la consulta falla devuelve el último valor conocido (0 al
+     * inicio) y vuelve a intentarlo en 5 segundos.
      */
     public int contarParaCabecera() {
-        long ahora = System.currentTimeMillis();
-        if (ahora < conteoVenceEn) {
+        if (System.currentTimeMillis() < conteoVenceEn) {
             return conteoCacheado;
         }
-        int generacion = generacionConteo.get();
+        if (!conteoEnVuelo.compareAndSet(false, true)) {
+            return conteoCacheado;   // otra petición ya está consultando
+        }
         try {
-            int total = contar();
-            if (generacion == generacionConteo.get()) {
-                conteoCacheado = total;
-                conteoVenceEn = System.currentTimeMillis() + TTL_CONTEO_MS;
+            if (System.currentTimeMillis() < conteoVenceEn) {
+                return conteoCacheado;   // la petición anterior terminó justo antes de tomar el turno
             }
-            return total;
-        } catch (IllegalStateException ex) {
-            conteoVenceEn = System.currentTimeMillis() + REINTENTO_CONTEO_MS;
-            return conteoCacheado;
+            int generacion = generacionConteo.get();
+            try {
+                int total = consultaConteo.getAsInt();
+                if (generacion == generacionConteo.get()) {
+                    conteoCacheado = total;
+                    conteoVenceEn = System.currentTimeMillis() + TTL_CONTEO_MS;
+                }
+                return total;
+            } catch (IllegalStateException ex) {
+                conteoVenceEn = System.currentTimeMillis() + REINTENTO_CONTEO_MS;
+                return conteoCacheado;
+            }
+        } finally {
+            conteoEnVuelo.set(false);
         }
+    }
+
+    /** Solo para pruebas: olvida el conteo guardado y el vuelo en curso. */
+    void reiniciarConteoParaPruebas() {
+        conteoCacheado = 0;
+        conteoVenceEn = 0;
+        conteoEnVuelo.set(false);
+    }
+
+    /** Solo para pruebas: hace vencer la caché del conteo sin tocar el valor ni el vuelo en curso. */
+    void vencerConteoParaPruebas() {
+        conteoVenceEn = 0;
     }
 
     /** Descarta el conteo guardado: el siguiente {@link #contarParaCabecera()} consulta de nuevo. */

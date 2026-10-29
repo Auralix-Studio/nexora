@@ -150,7 +150,7 @@ app** (sin video); **admin privado + cuentas demo públicas** (cliente, invitado
   crea el usuario contenido `nexora_app` (lectura/escritura) y fija claves privadas generadas para `admin` y `almacen`
   (se muestran una sola vez al usuario; nunca se guardan en el repo).
 - `.github/workflows/ci.yml`: compila y prueba; construye la imagen; E2E en contenedor (modo memoria); publica en GHCR
-  en `main`; despliega a Container Apps si existen los secretos `AZURE_*` (OIDC).
+  en `main`; despliega a Container Apps si existe la variable de repositorio `AZURE_CLIENT_ID` (OIDC, junto con `AZURE_TENANT_ID` y `AZURE_SUBSCRIPTION_ID`).
 - `docs/DESPLIEGUE.md`: guía paso a paso en español.
 
 ### Acciones que hace el usuario (credenciales y costos)
@@ -177,9 +177,10 @@ recursos; guardar las claves privadas que se muestren.
 | Módulo admin: correcciones | sonnet | Hecho 29/10 | 17 puntos; se reanudó tras límite semanal; 236 pruebas; E2E compra 32/32 y admin 65/65 en memoria y SQL Server |
 | Cambios externos 26/10 12:04-12:58 | (fuera de la orquestación) | Integrados | Datos de entrega en checkout y DNI/celular en registro; se completan en SQL en la ola P1-A |
 | Producción: P1 (backend, UI motion, infra) | sonnet ×3 en paralelo | Hecho 29/10 | 276 pruebas; Tomcat local en modo producción contra SQL Server: humo 20/20, compra 32/32, admin 65/65; Bicep compila; hora de Lima en app y BD; 404 real para rutas sin servlet; NEXORA_COOKIE_SEGURA para probar por http |
-| Repositorio GitHub | opus (orquestador) | Hecho | Privado: https://github.com/Alexito-Hub/nexora (main con commits 3323d27, ecc2ff5, 493a3d7, 8217cb3) |
-| CI en GitHub Actions | — | **Bloqueado por la cuenta** | Dos ejecuciones en `startup_failure` sin jobs; un workflow trivial en otra rama ni se registró; Actions permitidas ("all"). Causa probable: facturación/minutos de Actions en repos privados. Acción del usuario: revisar Settings → Billing (o GitHub Student Developer Pack) |
-| Revisión de producción | opus | En curso | Se reanudó tras límite de sesión |
+| Repositorio GitHub | opus (orquestador) | Hecho | Privado; transferido el 29/10 a la organización: https://github.com/Auralix-Studio/nexora |
+| CI en GitHub Actions | — | Desbloqueado al mover el repo a Auralix-Studio (en la cuenta personal: startup_failure por facturación) | Dos ejecuciones en `startup_failure` sin jobs; un workflow trivial en otra rama ni se registró; Actions permitidas ("all"). Causa probable: facturación/minutos de Actions en repos privados. Acción del usuario: revisar Settings → Billing (o GitHub Student Developer Pack) |
+| Revisión de producción | opus | Hecho | 1 bloqueante (docker-compose.yml inválido, corregido) + 12 sugerencias aplicadas: conteo de un solo vuelo, cortocircuito de conexión 15 s, token para /salud?bd=1, tope de Log Analytics, clave por stdin, pool que no se recrea al cerrar, IP real en el access log, heap 65 %, caché de imágenes 1 día |
+| Verificación tras la revisión | opus (orquestador) | Hecho | 295 pruebas; modo producción contra SQL Server: humo 21/21, compra 32/32, admin 65/65 |
 | Verificación de la imagen Docker | — | Pendiente | Docker Desktop apagado; sin CI no hay construcción de la imagen. Plan B: `az acr build` en Azure (~5 USD/mes de ACR Basic) |
 | Despliegue en Azure | — | Pendiente | Azure CLI instalada; falta `az login` del usuario |
 

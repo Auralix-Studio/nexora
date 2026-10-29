@@ -83,8 +83,8 @@ bash infra/crear-infra.sh                       # grupo rg-nexora, región eastu
 El script:
 
 1. Comprueba `az` y la sesión, crea el grupo de recursos y registra los proveedores necesarios.
-2. Genera claves fuertes para el administrador SQL y para `nexora_app` y las guarda en `infra/.secretos.local`
-   (Git lo ignora; **no lo subas ni lo compartas**; hazle una copia en tu gestor de contraseñas).
+2. Genera claves fuertes para el administrador SQL y para `nexora_app`, y un token para `/salud?bd=1` (`TOKEN_SALUD`), y las
+   guarda en `infra/.secretos.local` (Git lo ignora; **no lo subas ni lo compartas**; hazle una copia en tu gestor de contraseñas).
 3. Muestra el **what-if** (lista de recursos que se crearán) y **pide confirmación** antes de crear nada.
 4. Despliega `infra/main.bicep` y guarda en `infra/.secretos.local` la URL y el nombre del servidor SQL.
 
@@ -185,20 +185,24 @@ Sin `gh`, crea las tres variables en GitHub: Settings > Secrets and variables > 
 | --- | --- |
 | Azure SQL Database serverless (oferta gratuita) | Sin costo dentro del límite mensual gratuito (100 000 segundos de vCore y 32 GB de datos). Al agotarlo, la base se **autopausa** hasta el mes siguiente (no cobra). Se pausa sola tras 60 minutos sin uso y se reanuda en ~1 minuto al primer acceso |
 | Container Apps (plan Consumo, 0.5 vCPU / 1 GiB) | Con `minReplicas=0` solo se paga mientras hay réplica activa, dentro de la cuota gratuita mensual (180 000 vCPU-segundos, 360 000 GiB-segundos y 2 millones de solicitudes). Con `minReplicas=1` el consumo del mes entero supera esa cuota y se cobra (tarifa reducida cuando está inactiva) |
-| Log Analytics | Los primeros 5 GB de ingesta al mes son gratuitos; retención de 30 días |
+| Log Analytics | Los primeros 5 GB de ingesta al mes son gratuitos; retención de 30 días. Tiene un **tope diario de 0,5 GB**: al alcanzarlo dejan de guardarse registros hasta el día siguiente (la aplicación sigue funcionando), de modo que un pico de registros no consume crédito |
 | GHCR | Gratis para repositorios privados dentro de los límites de tu plan de GitHub |
 
 Los precios cambian: confirma con la [calculadora de Azure](https://azure.microsoft.com/pricing/calculator/) y vigila
 Cost Management en el portal.
 
-**Arranque en frío.** Con `minReplicas=0` la primera visita tras un rato sin tráfico tarda ~2 minutos (arranca Tomcat) y, si
-la base estaba pausada, un minuto más. Para una **evaluación o demostración**, mantén la aplicación encendida y vuelve a
-apagarla después:
+**Arranque en frío y sesiones.** Con `minReplicas=0` la primera visita tras un rato sin tráfico tarda ~2 minutos (arranca
+Tomcat) y, si la base estaba pausada, un minuto más. Además, la réplica se apaga tras unos minutos sin tráfico y **las sesiones
+viven en la memoria de Tomcat: al apagarse se pierden** (el usuario tendría que iniciar sesión otra vez, incluso a mitad del
+checkout). Por eso, para una **evaluación o demostración** usa `minReplicas=1` (la aplicación siempre encendida) y vuelve a
+`0` después:
 
 ```bash
 az containerapp update -g rg-nexora -n ca-nexora --min-replicas 1    # antes de la evaluación
 az containerapp update -g rg-nexora -n ca-nexora --min-replicas 0    # al terminar
 ```
+
+(También sirve `bash infra/crear-infra.sh -m 1`; sin `-m` el script conserva el valor que ya tenga el Container App.)
 
 El máximo es siempre 1 réplica: las sesiones viven en la memoria de Tomcat. La base se despierta con la primera consulta,
 así que abre la tienda unos minutos antes de presentar.
@@ -213,7 +217,21 @@ az containerapp logs show -g rg-nexora -n ca-nexora --type system --tail 50     
 
 Si la aplicación está escalada a cero no hay réplica de la cual leer: usa Log Analytics en el portal (Container App >
 Monitoring > Logs, tabla `ContainerAppConsoleLogs_CL`) o abre la URL para despertarla. Comprobaciones rápidas:
-`curl https://<url>/salud` (estado, versión y entorno) y `curl "https://<url>/salud?bd=1"` (además hace `SELECT 1` en la base).
+`curl https://<url>/salud` (estado, versión y entorno; no toca la base y es lo que usan las sondas).
+
+`/salud?bd=1` además hace `SELECT 1` en la base, lo que **despierta Azure SQL** y gasta parte de su límite gratuito; por eso en
+producción exige la cabecera `X-Salud-Token` con el valor de `NEXORA_TOKEN_SALUD` (guardado como `TOKEN_SALUD` en
+`infra/.secretos.local`). Sin la cabecera, con un token distinto o si la variable no está definida responde 403
+`{"estado":"ok","bd":"no autorizado"}` sin tocar la base:
+
+```bash
+source infra/.secretos.local
+curl -H "X-Salud-Token: $TOKEN_SALUD" "https://<url>/salud?bd=1"      # 200 {"estado":"ok","bd":"ok"} o 503
+```
+
+Si la base está pausada o caída, tras un fallo de conexión la aplicación rechaza durante 15 segundos las nuevas solicitudes de
+datos (503 inmediato) y luego una sola petición vuelve a intentar: así la reanudación de Azure SQL (hasta ~1 minuto) no deja
+las páginas colgadas. Para rotar el token, borra la línea `TOKEN_SALUD` de `infra/.secretos.local` y repite `bash infra/crear-infra.sh`.
 
 ## 10. Rotar claves
 
@@ -277,7 +295,7 @@ elimina también las imágenes (GitHub > Packages > nexora) y el token de GHCR. 
 | --- | --- |
 | La URL muestra una página de bienvenida de Azure | Aún no hiciste el paso 6 (imagen de arranque) |
 | `/salud` no responde tras desplegar | Tomcat tarda ~2 minutos; mira `az containerapp logs show --type system`. La imagen debe ser de la misma versión que `NEXORA_VERSION` |
-| Error 503 en la tienda | Producción nunca usa el respaldo en memoria: la base no responde. Revisa `/salud?bd=1`, que `inicializar-bd.sh` terminó bien y que la clave de `nexora_app` coincide con el secreto `db-password` |
+| Error 503 en la tienda | Producción nunca usa el respaldo en memoria: la base no responde. Revisa `/salud?bd=1` (con la cabecera `X-Salud-Token`), que `inicializar-bd.sh` terminó bien y que la clave de `nexora_app` coincide con el secreto `db-password` |
 | `ImagePullBackOff` / no baja la imagen | El paquete de GHCR es privado y falta el token: repite el paso 6 con `GHCR_USUARIO` y `GHCR_TOKEN` |
 | `sqlcmd` falla con error 40613 o 40615 | La base está pausada (reintenta) o tu IP no está permitida (el script abre la regla; espera unos segundos) |
 | `Seguridad no devolvió un hash válido` | Falta compilar con Maven (`mvn -q package`) |
@@ -297,3 +315,4 @@ elimina también las imágenes (GitHub > Packages > nexora) y el token de GHCR. 
 | `NEXORA_DEMO` | `true` / `false` | Cinta "Entorno de demostración" y cuadro de cuentas demo en el inicio de sesión |
 | `NEXORA_VERSION` | sha corto (defecto `dev`) | Versión que informa `/salud` y se usa en `?v=` de CSS y JS |
 | `NEXORA_COOKIE_SEGURA` | `true` / `false` (defecto: `true` en producción) | Atributo Secure de la cookie de sesión; `false` solo para probar el contenedor por `http://localhost` |
+| `NEXORA_TOKEN_SALUD` | secreto (en Azure, el secreto `salud-token`) | En producción, `/salud?bd=1` exige la cabecera `X-Salud-Token` con este valor; sin la variable responde siempre 403. `/salud` sin parámetros no lo necesita. En desarrollo `?bd=1` sigue abierto |

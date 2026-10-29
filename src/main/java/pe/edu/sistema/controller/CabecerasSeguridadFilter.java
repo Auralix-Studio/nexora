@@ -30,6 +30,7 @@ public class CabecerasSeguridadFilter implements Filter {
             + "frame-ancestors 'none'; base-uri 'self'; object-src 'none'";
     static final String PERMISSIONS_POLICY = "camera=(), microphone=(), geolocation=(), payment=()";
     static final String CACHE_ESTATICOS = "public, max-age=604800";
+    static final String CACHE_IMAGENES = "public, max-age=86400";
     private static final String HSTS = "max-age=31536000; includeSubDomains";
 
     @Override
@@ -62,7 +63,8 @@ public class CabecerasSeguridadFilter implements Filter {
             resp.setHeader("Strict-Transport-Security", HSTS);
         }
         if (esEstatico(req.getServletPath())) {
-            resp.setHeader("Cache-Control", CACHE_ESTATICOS);
+            // CSS y JS llevan ?v=<versión> y pueden guardarse una semana; las imágenes no se versionan
+            resp.setHeader("Cache-Control", req.getServletPath().startsWith("/img/") ? CACHE_IMAGENES : CACHE_ESTATICOS);
         }
     }
 

@@ -52,13 +52,16 @@ class CabecerasSeguridadFilterTest {
     }
 
     @Test
-    @DisplayName("Los recursos estáticos /css /js /img se guardan en caché una semana; las páginas no")
+    @DisplayName("CSS y JS (versionados con ?v=) en caché una semana, imágenes un día; las páginas no")
     void cacheDeEstaticos() throws Exception {
-        for (String ruta : new String[]{"/css/app.css", "/js/app.js", "/img/logo.png"}) {
+        for (String ruta : new String[]{"/css/app.css", "/js/app.js"}) {
             Respuesta resp = new Respuesta();
             filtro.doFilter(Peticion.get(ruta).proxy, resp.proxy, CADENA_VACIA);
             assertEquals("public, max-age=604800", resp.cabecera("Cache-Control"), ruta);
         }
+        Respuesta imagen = new Respuesta();
+        filtro.doFilter(Peticion.get("/img/logo.png").proxy, imagen.proxy, CADENA_VACIA);
+        assertEquals("public, max-age=86400", imagen.cabecera("Cache-Control"));
         for (String ruta : new String[]{"/inicio", "/productos", "/csstest/x", "/salud"}) {
             Respuesta resp = new Respuesta();
             filtro.doFilter(Peticion.get(ruta).proxy, resp.proxy, CADENA_VACIA);

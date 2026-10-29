@@ -41,6 +41,8 @@ final class ServletFalsos {
     static final class Peticion {
         final Map<String, Object> atributos = new HashMap<>();
         final Map<String, String> parametros = new HashMap<>();
+        /** Cabeceras de la petición (sin distinguir mayúsculas). */
+        final Map<String, String> cabeceras = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
         /** Llamadas relevantes en orden, p. ej. "getSession(true)". */
         final List<String> llamadas = new ArrayList<>();
         final HttpServletRequest proxy;
@@ -54,6 +56,7 @@ final class ServletFalsos {
                 case "getContextPath" -> "/Semana04";
                 case "isSecure" -> seguro;
                 case "getParameter" -> parametros.get((String) a[0]);
+                case "getHeader" -> cabeceras.get((String) a[0]);
                 case "setAttribute" -> {
                     atributos.put((String) a[0], a[1]);
                     yield null;

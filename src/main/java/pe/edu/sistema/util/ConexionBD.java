@@ -12,7 +12,9 @@ import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.function.LongSupplier;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -29,7 +31,9 @@ import java.util.logging.Logger;
  *       no responde, los servicios usan su respaldo en memoria; la disponibilidad se comprueba cada 5 segundos.</li>
  *   <li><b>Producción</b>: las tres variables son obligatorias y no hay valores por defecto. Nunca existe respaldo
  *       en memoria: sin configuración o con la base caída, los servicios lanzan
- *       {@link DatosNoDisponiblesException} (503). No se sondea la base fuera de {@link #probarConexion()}.</li>
+ *       {@link DatosNoDisponiblesException} (503). No se sondea la base fuera de {@link #probarConexion()}.
+ *       Tras un fallo de conexión, durante {@link #PLAZO_CORTOCIRCUITO_MS} las solicitudes fallan de inmediato y
+ *       luego una sola petición vuelve a intentar (reanudación de Azure SQL).</li>
  * </ul>
  */
 public final class ConexionBD {
@@ -62,8 +66,15 @@ public final class ConexionBD {
     private static volatile long ultimaVerificacion = 0;
     private static final long INTERVALO_REINTENTO_MS = 5000;
 
+    /** Producción: tras un fallo de conexión, plazo en que las solicitudes fallan de inmediato antes de reintentar. */
+    static final long PLAZO_CORTOCIRCUITO_MS = 15_000L;
+
     private static final Object CANDADO_POOL = new Object();
     private static volatile HikariDataSource pool;
+    /** true tras {@link #cerrar()}: el pool no se vuelve a crear (la aplicación se está deteniendo). */
+    private static volatile boolean cerrado;
+    /** Solo se reemplaza en pruebas (reloj simulado). */
+    static volatile Cortocircuito cortocircuito = new Cortocircuito(PLAZO_CORTOCIRCUITO_MS, System::nanoTime);
     private static final AtomicBoolean AVISO_CONFIGURACION = new AtomicBoolean(false);
 
     static {
@@ -90,7 +101,93 @@ public final class ConexionBD {
         if (!estaConfigurada()) {
             throw new SQLTransientConnectionException("La base de datos no está configurada.");
         }
-        return pool().getConnection();
+        if (cerrado) {
+            throw new SQLNonTransientConnectionException("La aplicación se está deteniendo: el pool está cerrado.");
+        }
+        boolean produccion = ConfigApp.esProduccion();
+        Cortocircuito corte = cortocircuito;
+        if (produccion && !corte.permitir()) {
+            // Base caída o pausada: respuesta inmediata (503) sin tocar Hikari ni esperar su tiempo de conexión
+            throw new DatosNoDisponiblesException();
+        }
+        try {
+            Connection cn = pool().getConnection();
+            if (produccion) {
+                corte.exito();
+            }
+            return cn;
+        } catch (SQLException | RuntimeException ex) {
+            if (produccion) {
+                registrarResultadoFallido(corte, ex);
+            }
+            throw ex;
+        }
+    }
+
+    /** Un fallo de conexión abre el cortocircuito; un error que no es de conectividad indica que la base respondió. */
+    private static void registrarResultadoFallido(Cortocircuito corte, Exception ex) {
+        if (ex instanceof SQLException sql && !esFalloDeConexion(sql)) {
+            corte.exito();
+        } else {
+            abrirCortocircuito(corte);
+        }
+    }
+
+    private static void abrirCortocircuito(Cortocircuito corte) {
+        if (corte.fallo()) {
+            LOG.log(Level.WARNING, "Base de datos no disponible: durante {0} s las conexiones se rechazan sin consultarla; "
+                    + "luego una sola petición volverá a intentarlo.", PLAZO_CORTOCIRCUITO_MS / 1000);
+        }
+    }
+
+    /**
+     * Cortocircuito de producción: tras un fallo de conexión rechaza de inmediato las solicitudes durante un plazo y,
+     * vencido este, deja pasar una sola petición de prueba (las demás siguen rechazadas hasta que esa termine).
+     * Así la reanudación de Azure SQL serverless la dispara una única petición y el resto recibe un 503 rápido en
+     * lugar de esperar el tiempo de conexión de Hikari.
+     */
+    static final class Cortocircuito {
+        private final long plazoNs;
+        private final LongSupplier relojNs;
+        private boolean abierto;
+        private boolean sondeando;
+        private long hastaNs;
+
+        Cortocircuito(long plazoMs, LongSupplier relojNs) {
+            this.plazoNs = TimeUnit.MILLISECONDS.toNanos(plazoMs);
+            this.relojNs = relojNs;
+        }
+
+        /** true si la solicitud puede intentar conectar; false si debe fallar de inmediato. */
+        synchronized boolean permitir() {
+            if (!abierto) {
+                return true;
+            }
+            if (sondeando || relojNs.getAsLong() - hastaNs < 0) {
+                return false;
+            }
+            sondeando = true;   // medio abierto: pasa esta petición y las demás esperan su resultado
+            return true;
+        }
+
+        /** La conexión funcionó (o la base respondió): cierra el cortocircuito. */
+        synchronized void exito() {
+            abierto = false;
+            sondeando = false;
+        }
+
+        /** La conexión falló: rechaza las nuevas solicitudes durante el plazo. @return true si estaba cerrado */
+        synchronized boolean fallo() {
+            boolean estabaCerrado = !abierto;
+            abierto = true;
+            sondeando = false;
+            hastaNs = relojNs.getAsLong() + plazoNs;
+            return estabaCerrado;
+        }
+
+        synchronized boolean estaAbierto() {
+            return abierto;
+        }
     }
 
     private static HikariDataSource pool() throws SQLException {
@@ -99,6 +196,9 @@ public final class ConexionBD {
             return actual;
         }
         synchronized (CANDADO_POOL) {
+            if (cerrado) {
+                throw new SQLNonTransientConnectionException("La aplicación se está deteniendo: el pool está cerrado.");
+            }
             if (pool == null || pool.isClosed()) {
                 try {
                     pool = crearPool();
@@ -130,9 +230,13 @@ public final class ConexionBD {
         return new HikariDataSource(cfg);
     }
 
-    /** Cierra el pool (al detener la aplicación); el siguiente uso crearía uno nuevo. */
+    /**
+     * Cierra el pool al detener la aplicación y lo deja cerrado: ninguna petición tardía lo recrea ni deja hilos de
+     * Hikari vivos (obtenerConexion falla enseguida con SQLNonTransientConnectionException).
+     */
     public static void cerrar() {
         synchronized (CANDADO_POOL) {
+            cerrado = true;
             if (pool != null) {
                 pool.close();
                 pool = null;
@@ -140,9 +244,17 @@ public final class ConexionBD {
         }
     }
 
-    /** Solo para pruebas: cierra el pool y olvida el estado de disponibilidad y los avisos. */
+    /** Solo para pruebas: true si existe un pool creado y abierto. */
+    static boolean hayPool() {
+        HikariDataSource actual = pool;
+        return actual != null && !actual.isClosed();
+    }
+
+    /** Solo para pruebas: cierra el pool y olvida el estado de disponibilidad, el cortocircuito y los avisos. */
     static void reiniciarParaPruebas() {
         cerrar();
+        cerrado = false;
+        cortocircuito = new Cortocircuito(PLAZO_CORTOCIRCUITO_MS, System::nanoTime);
         bdDisponible = null;
         detalleEstado = "Pendiente de verificación";
         ultimaVerificacion = 0;
@@ -234,6 +346,7 @@ public final class ConexionBD {
         }
         registrarFallo(ex);
         if (esFalloDeConexion(ex)) {
+            abrirCortocircuito(cortocircuito);
             throw new DatosNoDisponiblesException(ex);
         }
     }
@@ -248,6 +361,9 @@ public final class ConexionBD {
             return;
         }
         registrarFallo(ex);
+        if (esFalloDeConexion(ex)) {
+            abrirCortocircuito(cortocircuito);
+        }
         throw new DatosNoDisponiblesException(ex);
     }
 
@@ -298,6 +414,8 @@ public final class ConexionBD {
         } catch (SQLException ex) {
             registrarFallo(ex);
             return false;
+        } catch (DatosNoDisponiblesException ex) {
+            return false;   // cortocircuito abierto: la base no responde y no se vuelve a tocar todavía
         }
     }
 

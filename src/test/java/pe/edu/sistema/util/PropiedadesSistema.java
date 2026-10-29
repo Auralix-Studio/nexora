@@ -12,7 +12,7 @@ public final class PropiedadesSistema {
     /** Todas las propiedades que leen {@link ConfigApp} y {@link ConexionBD}. */
     public static final String[] CLAVES = {
         ConfigApp.ENTORNO, ConfigApp.DEMO, ConfigApp.VERSION,
-        "DB_URL", "DB_USER", "DB_PASSWORD", "DB_CONNECTION_TIMEOUT_MS"
+        "DB_URL", "DB_USER", "DB_PASSWORD", "DB_CONNECTION_TIMEOUT_MS", "NEXORA_TOKEN_SALUD"
     };
 
     /** URL a un puerto cerrado: la conexión falla de inmediato (la misma que usa surefire). */

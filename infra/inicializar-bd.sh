@@ -83,7 +83,8 @@ sql_admin() { sqlcmd -S "$SQL_FQDN" -d "$BD" -U "$SQL_ADMIN_LOGIN" -l 30 -N -b -
 # Se calculan antes de tocar la base: si Seguridad falla, no se ha borrado nada.
 hash_clave() {
   local salida
-  salida="$(java -cp target/classes pe.edu.sistema.util.Seguridad "$1" 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+  # La clave entra por la entrada estándar (printf es interno de bash): no aparece en la lista de procesos.
+  salida="$(printf '%s' "$1" | java -cp target/classes pe.edu.sistema.util.Seguridad 2>/dev/null | tr -d '\r' | tail -n 1 || true)"
   [[ "$salida" == pbkdf2_sha256\$* ]] \
     || fallar "Seguridad no devolvió un hash válido. ¿Recompilaste con Maven y existe Seguridad.main(String[])?"
   printf '%s' "$salida"

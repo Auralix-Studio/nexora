@@ -41,7 +41,7 @@ COPY --from=construccion --chown=10001:10001 /compilacion/target/Semana04.war /u
 ARG NEXORA_VERSION=dev
 ENV NEXORA_ENTORNO=produccion \
     NEXORA_VERSION=${NEXORA_VERSION} \
-    CATALINA_OPTS="-XX:MaxRAMPercentage=75 -XX:+ExitOnOutOfMemoryError -Duser.timezone=America/Lima"
+    CATALINA_OPTS="-XX:MaxRAMPercentage=65 -XX:+ExitOnOutOfMemoryError -Duser.timezone=America/Lima"
 # DB_URL, DB_USER, DB_PASSWORD y NEXORA_DEMO se inyectan al ejecutar (nunca se guardan en la imagen).
 
 USER 10001:10001

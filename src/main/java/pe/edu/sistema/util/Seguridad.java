@@ -1,5 +1,9 @@
 package pe.edu.sistema.util;
 
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.PrintStream;
+import java.nio.charset.StandardCharsets;
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
 import java.security.SecureRandom;
@@ -81,20 +85,54 @@ public final class Seguridad {
         return valor != null && valor.startsWith(PREFIJO + "$");
     }
 
+    /** Máximo de bytes que se leen de la entrada estándar (una clave nunca se acerca a este tamaño). */
+    private static final int MAX_BYTES_ENTRADA = 4096;
+
     /**
-     * Herramienta de línea de comandos: imprime solo el hash de {@code args[0]} (y nada más en la salida estándar).
+     * Herramienta de línea de comandos: imprime solo el hash de la clave (y nada más en la salida estándar).
      * La usa el script de inicialización de la base para guardar las claves privadas ya cifradas.
-     * Sin argumento, termina con código 2 y un mensaje en la salida de error.
+     *
+     * <p>Sin argumentos lee la clave de la entrada estándar (primera línea, sin retorno de carro final), de modo
+     * que no aparezca en la lista de procesos; con un argumento usa {@code args[0]}. Sin clave, termina con
+     * código 2 y un mensaje en la salida de error.</p>
      */
     public static void main(String[] args) {
-        if (args == null || args.length < 1 || args[0].isEmpty()) {
-            System.err.println("Uso: java -cp ... pe.edu.sistema.util.Seguridad <clave>");
-            System.exit(2);
-            return;
+        int codigo = ejecutar(args, System.in, System.out, System.err);
+        if (codigo != 0) {
+            System.exit(codigo);
+        }
+    }
+
+    /** Lógica de {@link #main} sin terminar la JVM. @return 0 si imprimió el hash; 2 si no hay clave que cifrar */
+    static int ejecutar(String[] args, InputStream entrada, PrintStream salida, PrintStream error) {
+        String clave;
+        if (args != null && args.length >= 1) {
+            clave = args[0];
+        } else {
+            clave = leerLinea(entrada);
+        }
+        if (clave == null || clave.isEmpty()) {
+            error.println("Uso: printf '%s' \"$CLAVE\" | java -cp ... pe.edu.sistema.util.Seguridad   (o con la clave como argumento)");
+            return 2;
         }
         // Salto de línea fijo (no el del sistema): el script de inicialización lee la línea sin retorno de carro
-        System.out.print(hashClave(args[0]) + "\n");
-        System.out.flush();
+        salida.print(hashClave(clave) + "\n");
+        salida.flush();
+        return 0;
+    }
+
+    /** Primera línea de la entrada (UTF-8), sin salto de línea ni retorno de carro final; null si no se pudo leer. */
+    private static String leerLinea(InputStream entrada) {
+        try {
+            String texto = new String(entrada.readNBytes(MAX_BYTES_ENTRADA), StandardCharsets.UTF_8);
+            int salto = texto.indexOf('\n');
+            if (salto >= 0) {
+                texto = texto.substring(0, salto);
+            }
+            return texto.endsWith("\r") ? texto.substring(0, texto.length() - 1) : texto;
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     private static byte[] derivar(String clave, byte[] sal, int iteraciones) {

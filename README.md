@@ -174,5 +174,6 @@ Variables de entorno de la aplicación (el contenedor las recibe en tiempo de ej
 | `NEXORA_DEMO` | `true` / `false` | Cinta "Entorno de demostración" y cuenta demo en el login |
 | `NEXORA_VERSION` | sha corto del commit (defecto `dev`) | Versión que informa `/salud` y se usa en `?v=` de CSS y JS |
 | `NEXORA_COOKIE_SEGURA` | `true` / `false` (defecto: `true` en producción) | Atributo Secure de la cookie de sesión; `false` solo para probar por `http://localhost` |
+| `NEXORA_TOKEN_SALUD` | secreto (en Azure, `salud-token`) | En producción, `/salud?bd=1` exige la cabecera `X-Salud-Token` con este valor (sin la variable responde 403); en desarrollo sigue abierto |
 
 `GET /salud` devuelve 200 con `{"estado","version","entorno"}` sin consultar la base (`/salud?bd=1` sí hace `SELECT 1`) y lo usan las sondas de Azure.

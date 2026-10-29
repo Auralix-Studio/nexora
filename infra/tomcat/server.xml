@@ -47,6 +47,7 @@
         <!-- Formato combinado a la salida estándar (/dev/stdout), sin rotación ni búfer. -->
         <Valve className="org.apache.catalina.valves.AccessLogValve"
                directory="/dev" prefix="stdout" suffix="" rotatable="false" buffered="false"
+               requestAttributesEnabled="true"
                pattern="combined"/>
 
       </Host>

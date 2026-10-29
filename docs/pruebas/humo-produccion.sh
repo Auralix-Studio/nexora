@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# Prueba de humo de producción: solo lectura (no compra ni crea datos).
+# Prueba de humo de producción: no compra ni crea cuentas; el único efecto es el ingreso con la cuenta demo
+# "cliente", que queda en dbo.sesion_acceso y dbo.auditoria como cualquier inicio de sesión.
 # Comprueba salud, base de datos, cabeceras de seguridad, cookies, páginas públicas, ingreso demo y permisos.
-# Uso: bash docs/pruebas/humo-produccion.sh https://<app>.azurecontainerapps.io
+# Uso: TOKEN_SALUD=<valor de NEXORA_TOKEN_SALUD> bash docs/pruebas/humo-produccion.sh https://<app>.azurecontainerapps.io
+#      (sin TOKEN_SALUD se omite la comprobación de la base, que en producción exige la cabecera X-Salud-Token)
 B="${1:?Indica la URL base, p. ej. https://nexora.example.azurecontainerapps.io}"
 B="${B%/}"
 D="$(mktemp -d)"
+trap 'rm -rf "$D"' EXIT
 ok=0; fail=0
 check() { if eval "$2"; then ok=$((ok+1)); echo "OK   $1"; else fail=$((fail+1)); echo "FAIL $1"; fi; }
 get() { code=$(curl -s -b "$D/$1" -c "$D/$1" -D "$D/head" -o "$D/body" -w '%{http_code}|%{redirect_url}' "$B$2"); loc=${code#*|}; code=${code%%|*}; }
@@ -14,7 +17,12 @@ csrf() { grep -o 'name="_csrf" value="[^"]*"' "$D/body" | head -1 | sed 's/.*val
 
 get anon /salud;          check "salud responde 200 con JSON" '[ "$code" = 200 ] && has "\"estado\":\"ok\""'
 check "salud no crea sesión" '! grep -qi "^set-cookie:" "$D/head"'
-get anon "/salud?bd=1";   check "base de datos conectada" '[ "$code" = 200 ] && has "\"bd\":\"ok\""'
+if [ -n "${TOKEN_SALUD:-}" ]; then
+  code=$(curl -s -H "X-Salud-Token: $TOKEN_SALUD" -o "$D/body" -w '%{http_code}' "$B/salud?bd=1")
+  check "base de datos conectada" '[ "$code" = 200 ] && has "\"bd\":\"ok\""'
+fi
+code=$(curl -s -o "$D/body" -w '%{http_code}' "$B/salud?bd=1")
+check "salud con BD no se abre sin token en producción" '[ "$code" = 403 ] || ! has "\"entorno\":\"produccion\""'
 get anon /;               check "portada pública 200" '[ "$code" = 200 ] && has "Comprar ahora"'
 check "CSP estricta" 'grep -qi "^content-security-policy:.*script-src .self." "$D/head"'
 check "nosniff" 'cab "x-content-type-options"'
@@ -41,3 +49,4 @@ get cli "/productos?accion=pedidos";    check "historial del cliente carga" '[ "
 get cli /admin;                          check "cliente no entra al admin" '[ "$code" = 302 ]'
 get anon "/css/..;/productos?accion=pedidos"; check "rutas manipuladas rechazadas" '[ "$code" != 200 ]'
 echo "---- $ok OK, $fail FAIL"
+exit $(( fail > 0 ))
