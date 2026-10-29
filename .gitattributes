@@ -1,0 +1,11 @@
+# Finales de línea LF en todo el repositorio (los scripts se ejecutan en Linux: Docker y GitHub Actions)
+* text=auto eol=lf
+
+# Binarios
+*.docx binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.ico binary
+*.war binary
